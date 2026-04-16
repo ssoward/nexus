@@ -1,0 +1,69 @@
+{
+  admin off
+  auto_https off
+}
+
+ssowardm5.tail040188.ts.net {
+  tls /certs/ssowardm5.tail040188.ts.net.crt /certs/ssowardm5.tail040188.ts.net.key
+
+  # MED-3: Strip query strings from access logs (WS tokens appear in query params)
+  log {
+    output stdout
+    format filter {
+      wrap console
+      fields {
+        request>uri replace \?.*
+      }
+    }
+  }
+
+  handle /api/* {
+    reverse_proxy host.docker.internal:8000 {
+      header_up Host {host}
+      # Overwrite any client-supplied forwarded-for header with the real peer IP
+      # so the backend rate-limiter cannot be bypassed by header spoofing.
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      flush_interval -1
+      transport http {
+        read_timeout  0
+        write_timeout 0
+      }
+    }
+  }
+
+  handle /ws/* {
+    reverse_proxy host.docker.internal:8000 {
+      header_up Host {host}
+      # Same IP-pinning as above — WS upgrade handshake goes through this block.
+      header_up X-Real-IP {remote_host}
+      header_up X-Forwarded-For {remote_host}
+      flush_interval -1
+      transport http {
+        read_timeout  0
+        write_timeout 0
+      }
+    }
+  }
+
+  handle {
+    root * /srv
+    encode gzip
+    try_files {path} /index.html
+    file_server
+
+    # LOW-7: CSP and HSTS for static assets (backend middleware only covers API responses)
+    header {
+      Content-Security-Policy "default-src 'self'; connect-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self' data:; font-src 'self'; frame-ancestors 'none';"
+      Strict-Transport-Security "max-age=63072000; includeSubDomains"
+    }
+  }
+
+  header {
+    X-Content-Type-Options nosniff
+    X-Frame-Options DENY
+    Referrer-Policy no-referrer
+    Permissions-Policy "camera=(), microphone=(), geolocation=()"
+    -Server
+  }
+}

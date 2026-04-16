@@ -1,0 +1,27 @@
+# Nexus configuration - non-secret values only
+# Secrets (APP_SECRET, JWT_SECRET, CRYPTO_SALT) must be set as environment variables
+
+app:
+  max_panes: 6
+  log_level: INFO
+  db_path: ~/.nexus/nexus.db
+
+session:
+  idle_timeout_seconds: 3600
+
+presets:
+  - name: bash
+    command: ["/bin/bash", "-l"]
+    description: Login shell
+
+  - name: zsh
+    command: ["/bin/zsh", "-l"]
+    description: Zsh login shell
+
+  - name: claude
+    command: ["claude"]
+    description: Claude Code CLI
+
+  - name: python
+    command: ["python3"]
+    description: Python 3 REPL

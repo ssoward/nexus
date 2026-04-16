@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run *)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(sed -i '' 's/Urim terminal gateway/Herald terminal gateway/g; s/\\\\$URIM_TOKEN/$HERALD_TOKEN/g; s/\\\\$URIM_HOST/$HERALD_HOST/g; s/URIM_HOST/HERALD_HOST/g; s/URIM_TOKEN/HERALD_TOKEN/g' .claude/commands/mastermind.md)",
+      "Bash(sed -i '' 's/# Urim/# Herald/g; s/fs-eng\\\\/urim/fs-eng\\\\/herald/g; s/cd urim/cd herald/g; s|path/to/urim|path/to/herald|g; s|~/.urim|~/.herald|g; s|urim.db|herald.db|g; s|urim.tail|herald.tail|g; s/Urim is designed/Herald is designed/g; s/Urim Terminal/Herald Terminal/g; s/use case for Urim/use case for Herald/g; s/Urim — /Herald — /g; s/for Urim/for Herald/g' README.md)"
+    ]
+  }
+}

@@ -1,0 +1,35 @@
+# Secrets — never commit
+.env
+
+# TLS certificates
+certs/
+
+# Python
+*.pyc
+__pycache__/
+.pytest_cache/
+.venv/
+*.egg-info/
+
+# Database
+*.db
+*.db-wal
+*.db-shm
+
+# Session recovery snapshot
+recovery.json
+
+# Docker session containers working dir
+docker-sessions/
+
+# Node / frontend
+node_modules/
+dist/
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp
