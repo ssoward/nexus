@@ -19,7 +19,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Rate limiting** — 10 login attempts per minute per IP via slowapi
 - **Idle timeout** — sessions idle longer than 1 hour are stopped automatically
 - **Mobile-friendly** — overlay sidebar, dot navigation, soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos
-- **Inactivity detection** — amber pulsing border and sidebar badge when a terminal has no output for 5 seconds; helps identify which session needs attention
+- **Inactivity detection** — amber pulsing border and sidebar badge when a terminal has no output for 60 seconds; helps identify which session needs attention
 - **Priority Queue layout** — 80/20 split: one session gets most of the viewport, others are thumbnails; auto-promotes the most recently active session when the primary goes idle; toggle between Grid and Priority modes in the header
 - **Mastermind orchestration** — HTTP API (`/api/orchestration/*`) to read terminal buffers, send keystrokes, and classify terminal state (WORKING/WAITING/ASKING/BUSY); sidebar Orchestrator panel with batch send; `wctl.py` CLI for programmatic control of parallel Claude Code agents
 - **Health check** — `GET /api/health` returns database, watchdog, and PTY service status with uptime
@@ -327,19 +327,43 @@ All API routes are under `/api/`.
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
+| **Auth** | | | |
 | POST | `/api/auth/login` | — | Form: `username`, `password`, `totp_code` (optional first step) |
 | POST | `/api/auth/logout` | Cookie | Revokes JWT, clears cookie |
 | GET | `/api/auth/me` | Cookie | Returns `{id, username}` |
-| GET | `/api/auth/ws-token` | Cookie | Issues a single-use 60-second WS token for a session |
-| POST | `/api/auth/setup-totp` | Cookie | Generates + stores a new TOTP secret; returns QR code |
-| POST | `/api/auth/bootstrap-totp` | Form password | One-time TOTP setup before login is possible |
-| POST | `/api/auth/create-user` | — | Creates first user; disabled after that |
+| POST | `/api/auth/create-user` | — | Self-registration (email + password) |
+| POST | `/api/auth/setup-mfa` | Form password | Choose TOTP or email_otp; returns QR or sends code |
+| POST | `/api/auth/switch-mfa` | Form password | Switch between TOTP and email OTP from login screen |
+| POST | `/api/auth/resend-otp` | Form password | Resend email OTP code (3/min rate limit) |
+| POST | `/api/auth/refresh` | Cookie | Re-issue JWT cookie (called every 30 min by frontend) |
+| GET | `/api/auth/ws-token` | Cookie | Single-use 60-second WS token for a session |
+| POST | `/api/auth/setup-totp` | Cookie | Regenerate TOTP secret; returns QR code |
+| POST | `/api/auth/bootstrap-totp` | Form password | Legacy one-time TOTP setup |
+| **Sessions** | | | |
 | GET | `/api/sessions` | Cookie | List all sessions for the authenticated user |
 | POST | `/api/sessions` | Cookie | Create a new session (spawns PTY process) |
 | DELETE | `/api/sessions/{id}` | Cookie | Stop and delete a session |
-| POST | `/api/sessions/{id}/start` | Cookie | Restart a stopped session |
-| POST | `/api/sessions/{id}/resize` | Cookie | Resize session terminal |
+| POST | `/api/sessions/{id}/restart` | Cookie | Restart a stopped session |
+| PATCH | `/api/sessions/{id}/resize` | Cookie | Resize session terminal |
 | WS | `/ws/session/{id}?token=…` | WS token | Bidirectional PTY I/O |
+| **Orchestration** | | | |
+| GET | `/api/orchestration/sessions/states` | Cookie | Classified state for all running sessions |
+| GET | `/api/orchestration/sessions/{id}/state` | Cookie | State + idle seconds for one session |
+| GET | `/api/orchestration/sessions/{id}/buffer` | Cookie | Last N lines of terminal output (default 100) |
+| POST | `/api/orchestration/sessions/{id}/input` | Cookie | Send keystrokes to a session |
+| **Workspaces** | | | |
+| GET | `/api/workspaces` | Cookie | List workspaces |
+| POST | `/api/workspaces` | Cookie | Create workspace (name, color) |
+| PATCH | `/api/workspaces/{id}` | Cookie | Update workspace |
+| DELETE | `/api/workspaces/{id}` | Cookie | Delete workspace |
+| **Pages** | | | |
+| GET | `/api/pages` | Cookie | List embedded pages |
+| POST | `/api/pages` | Cookie | Create page (name, HTTPS URL) |
+| PATCH | `/api/pages/{id}` | Cookie | Update page |
+| DELETE | `/api/pages/{id}` | Cookie | Delete page |
+| **Monitoring** | | | |
+| GET | `/api/health` | — | Database, watchdog, PTY service status + uptime |
+| GET | `/api/metrics` | — | Prometheus-format counters and gauges |
 
 ### WebSocket frames (JSON)
 
@@ -551,15 +575,18 @@ On next login you'll be prompted to choose a new MFA method.
 
 ## Database Schema
 
-Managed by Alembic. Migrations in `backend/alembic/versions/`.
+Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Credentials, TOTP secret (AES-GCM encrypted), lockout state |
-| `sessions` | Session metadata: name, status, cols/rows, timestamps |
+| `users` | Credentials, encrypted TOTP secret (AES-GCM), `mfa_method` (totp/email_otp), lockout state, TOTP replay fields |
+| `sessions` | Session metadata: name, preset, status, cols/rows, workspace_id, timestamps |
 | `ws_tokens` | Single-use WS auth tokens with JTI + expiry |
 | `revoked_tokens` | Logout-revoked JWT JTIs; pruned when TTL expires |
 | `audit_log` | Append-only log of auth and session events |
+| `email_otp_codes` | Pending email OTP codes: bcrypt-hashed, 10-min TTL, single-use |
+| `workspaces` | Named, color-coded workspace groups for organizing sessions |
+| `pages` | Embedded HTTPS web pages (iframe tabs) |
 
 ---
 
@@ -567,11 +594,13 @@ Managed by Alembic. Migrations in `backend/alembic/versions/`.
 
 ### Authentication flow
 
-1. POST username + password to `/api/auth/login`
-2. If the account has TOTP configured, server returns `{ok: false, needs_totp: true}`
-3. Frontend shows TOTP code input; user re-submits with the 6-digit code
-4. On success, an httpOnly/Secure/SameSite=Strict JWT cookie is set
-5. WebSocket connections require a separate single-use token obtained via `/api/auth/ws-token`
+1. User registers with email + password via `/api/auth/create-user`
+2. User chooses MFA method (TOTP or Email OTP) via `/api/auth/setup-mfa`
+3. On subsequent logins, POST email + password to `/api/auth/login`
+4. Server returns `{needs_totp: true}` or `{needs_email_otp: true}` based on configured method
+5. User can switch methods via "Use email code instead" / "Use authenticator instead" links
+6. On success, an httpOnly/Secure/SameSite=Strict JWT cookie is set
+7. WebSocket connections require a separate single-use token obtained via `/api/auth/ws-token`
 
 ### Hardening applied
 
@@ -730,35 +759,52 @@ nexus/
 │   │   │   └── security_headers.py
 │   │   ├── models/
 │   │   │   ├── audit.py       # AuditAction enum
+│   │   │   ├── page.py        # Page model (embedded web pages)
 │   │   │   ├── session.py     # Session dataclass + Pydantic models
-│   │   │   └── user.py
+│   │   │   ├── user.py
+│   │   │   └── workspace.py   # Workspace model (color-coded groups)
 │   │   ├── routers/
-│   │   │   ├── auth.py        # Login, logout, TOTP, create-user
-│   │   │   ├── sessions.py    # CRUD + start/stop
+│   │   │   ├── auth.py        # Login, registration, MFA setup/switch, TOTP, email OTP
+│   │   │   ├── health.py      # GET /api/health
+│   │   │   ├── metrics.py     # GET /api/metrics (Prometheus format)
+│   │   │   ├── orchestration.py # Buffer, input, state classification
+│   │   │   ├── pages.py       # Embedded page CRUD
+│   │   │   ├── sessions.py    # Session CRUD + restart/resize
+│   │   │   ├── workspaces.py  # Workspace CRUD
 │   │   │   └── ws.py          # WebSocket PTY proxy
 │   │   └── services/
-│   │       ├── auth_service.py      # authenticate_user (lockout, TOTP, timing-safe)
+│   │       ├── auth_service.py      # authenticate_user (lockout, TOTP, email OTP)
+│   │       ├── email_service.py     # SMTP email sender (smtplib)
+│   │       ├── metrics.py           # In-process counters and gauges
+│   │       ├── otp_service.py       # Email OTP generate/verify/cleanup
 │   │       ├── process_watchdog.py  # Background: liveness, idle timeout, token cleanup
-│   │       ├── pty_broadcaster.py   # Single PTY reader → N subscriber queues
+│   │       ├── pty_broadcaster.py   # Single PTY reader → N subscriber queues + ring buffer
 │   │       ├── pty_service.py       # os.openpty + subprocess.Popen management
 │   │       ├── rate_limiter.py      # Per-session input rate limiter
+│   │       ├── recovery.py          # Session recovery (ring buffer serialization)
 │   │       ├── session_service.py   # Session CRUD helpers
+│   │       ├── terminal_classifier.py # WORKING/WAITING/ASKING/BUSY state detection
+│   │       ├── tls_renewal.py       # Auto Tailscale cert renewal
 │   │       └── token_service.py     # JWT create/decode (PyJWT)
 │   └── alembic/
 │       └── versions/
 │           ├── 0001_initial_schema.py
-│           └── 0002_security_hardening.py  # revoked_tokens table
+│           ├── 0002_security_hardening.py  # revoked_tokens table
+│           ├── 0003_totp_replay_protection.py
+│           ├── 0004_workspaces.py
+│           ├── 0005_pages.py
+│           └── 0006_email_otp.py
 └── frontend/
     └── src/
-        ├── api/               # axios client, auth.ts, sessions.ts
+        ├── api/               # axios client, auth.ts, sessions.ts, orchestration.ts, workspaces.ts, pages.ts
         ├── components/
-        │   ├── auth/          # LoginForm (2-step TOTP), TotpSetupModal
-        │   ├── terminal/      # TerminalPane (xterm.js), TerminalGrid, MobileKeyboardShim
-        │   └── ui/            # SessionList, NewSessionForm, ToastContainer
-        ├── hooks/             # useAuth, useSession, useTerminalSocket, useIsMobile, …
+        │   ├── auth/          # LoginForm (7-step MFA), TotpForm, TotpSetupModal
+        │   ├── terminal/      # TerminalPane, TerminalGrid, PriorityLayout, MobileKeybar
+        │   └── ui/            # SessionList, OrchestratorPanel, PageList, HelpModal, HelpTooltip
+        ├── hooks/             # useAuth, useSession, useTerminalSocket, useInactivityDetector, useAutoPromote, …
         ├── pages/             # LoginPage, TerminalPage
         ├── store/             # Zustand: authStore, sessionStore, toastStore
-        └── types/             # auth.ts, session.ts, ws.ts
+        └── types/             # auth.ts, session.ts, ws.ts, workspace.ts, page.ts
 ```
 
 ---
