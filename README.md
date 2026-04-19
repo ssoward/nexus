@@ -80,12 +80,6 @@ cd nexus
 ### 2. Generate secrets
 
 ```bash
-cat >> .env <<'EOF'
-APP_SECRET=$(openssl rand -hex 32)
-JWT_SECRET=$(openssl rand -hex 32)
-CRYPTO_SALT=$(openssl rand -hex 16)
-EOF
-# Regenerate the values properly:
 echo "APP_SECRET=$(openssl rand -hex 32)" > .env
 echo "JWT_SECRET=$(openssl rand -hex 32)" >> .env
 echo "CRYPTO_SALT=$(openssl rand -hex 16)" >> .env
