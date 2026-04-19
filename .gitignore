@@ -19,9 +19,6 @@ __pycache__/
 # Session recovery snapshot
 recovery.json
 
-# Docker session containers working dir
-docker-sessions/
-
 # Node / frontend
 node_modules/
 dist/
