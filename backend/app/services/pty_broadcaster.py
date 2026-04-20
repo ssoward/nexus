@@ -101,12 +101,24 @@ def broadcast_shutdown() -> None:
         state.subscribers.clear()
 
 
+REPLAY_MAX_BYTES = 512 * 1024  # Cap replay at 512 KB to limit memory/bandwidth spikes
+
+
 def get_raw_buffer(session_id: str) -> bytes:
-    """Return the complete ring buffer contents as raw bytes for replay."""
+    """Return recent ring buffer contents as raw bytes for replay, capped to REPLAY_MAX_BYTES."""
     state = _sessions.get(session_id)
     if state is None:
         return b""
-    return b"".join(state.ring_buffer)
+    # Walk backwards from the newest chunks to stay within the byte cap
+    chunks: list[bytes] = []
+    total = 0
+    for chunk in reversed(state.ring_buffer):
+        if total + len(chunk) > REPLAY_MAX_BYTES:
+            break
+        chunks.append(chunk)
+        total += len(chunk)
+    chunks.reverse()
+    return b"".join(chunks)
 
 
 def get_buffer(session_id: str, last_n_lines: int = 100) -> bytes:

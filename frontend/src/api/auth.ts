@@ -84,8 +84,8 @@ export async function refreshToken(): Promise<void> {
 }
 
 export async function getWsToken(sessionId: string): Promise<string> {
-  const res = await client.get<WsTokenResponse>('/auth/ws-token', {
-    params: { session_id: sessionId },
-  })
+  const form = new FormData()
+  form.append('session_id', sessionId)
+  const res = await client.post<WsTokenResponse>('/auth/ws-token', form)
   return res.data.ws_token
 }

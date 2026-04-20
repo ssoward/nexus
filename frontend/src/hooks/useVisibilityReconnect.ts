@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
-import { refreshToken } from '@/api/auth'
 
 const AWAY_THRESHOLD_MS = 5_000
+const RECONNECT_COOLDOWN_MS = 15_000
 
 interface Options {
   onBrowserReturn: () => void
@@ -10,26 +10,27 @@ interface Options {
 
 export function useVisibilityReconnect({ onBrowserReturn, enabled }: Options) {
   const lastHiddenAt = useRef<number>(0)
+  const lastReconnectAt = useRef<number>(0)
 
   useEffect(() => {
     if (!enabled) return
 
-    const handleVisibility = async () => {
+    const handleVisibility = () => {
       if (document.hidden) {
         lastHiddenAt.current = Date.now()
         return
       }
       // Tab became visible
       if (lastHiddenAt.current === 0) return
-      const away = Date.now() - lastHiddenAt.current
+      const now = Date.now()
+      const away = now - lastHiddenAt.current
       if (away < AWAY_THRESHOLD_MS) return
+      // Cooldown prevents rapid reconnect churn
+      if (now - lastReconnectAt.current < RECONNECT_COOLDOWN_MS) return
 
-      // Refresh JWT before attempting WS reconnect
-      try {
-        await refreshToken()
-      } catch {
-        // If refresh fails, the reconnect will fail with 401 and redirect to login
-      }
+      lastReconnectAt.current = now
+      // JWT refresh is handled by useAuth's visibility handler;
+      // no duplicate refresh here.
       onBrowserReturn()
     }
 

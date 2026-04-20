@@ -70,6 +70,9 @@ async def login(
     return {"ok": True, "username": user["username"]}
 
 
+MAX_SESSION_SECONDS = 24 * 60 * 60  # Absolute session lifetime: 24 hours
+
+
 @router.post("/refresh")
 @limiter.limit("30/minute")
 async def refresh_token(
@@ -80,10 +83,22 @@ async def refresh_token(
     """
     Re-issue the access-token cookie while the user is still active.
     The frontend calls this every 30 minutes so a session never expires
-    mid-use. The old token expires on its own schedule; no revocation
-    needed because refresh is only possible with a currently-valid token.
+    mid-use. Enforces a 24-hour absolute session lifetime — after that
+    the user must re-authenticate.
     """
-    token = create_access_token(current_user["id"])
+    # Propagate auth_time from the current token to enforce absolute lifetime
+    cookie = request.cookies.get(COOKIE_NAME)
+    auth_time = None
+    if cookie:
+        payload = decode_access_token(cookie)
+        if payload:
+            auth_time = payload.get("auth_time")
+    if auth_time and (datetime.now(timezone.utc).timestamp() - auth_time > MAX_SESSION_SECONDS):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Session expired — please sign in again",
+        )
+    token = create_access_token(current_user["id"], auth_time=auth_time)
     _set_auth_cookie(response, token)
     return {"ok": True}
 
@@ -120,11 +135,11 @@ class WsTokenResponse(BaseModel):
     ws_token: str
 
 
-@router.get("/ws-token", response_model=WsTokenResponse)
+@router.post("/ws-token", response_model=WsTokenResponse)
 @limiter.limit("60/minute")
 async def get_ws_token(
     request: Request,
-    session_id: str,
+    session_id: str = Form(...),
     current_user: dict = Depends(get_current_user),
 ):
     # Verify session belongs to this user

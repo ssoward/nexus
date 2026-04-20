@@ -13,6 +13,7 @@ interface TerminalSocketOptions {
 
 const MAX_RETRIES = 3
 const PING_INTERVAL_MS = 20_000
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 
 export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocketOptions) {
   const wsRef = useRef<WebSocket | null>(null)
@@ -29,6 +30,7 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
   }, [])
 
   const connect = useCallback(async (replay = false) => {
+    if (!UUID_RE.test(sessionId)) return
     try {
       let token: string
       try {

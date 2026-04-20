@@ -3,9 +3,12 @@ import base64
 import json
 import logging
 import os
+import re
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+
+_UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 from app.database import db
 from app.services import pty_service, pty_broadcaster, metrics
@@ -56,6 +59,9 @@ async def _validate_ws_token(token: str, session_id: str) -> int | None:
 
 @router.websocket("/ws/session/{session_id}")
 async def terminal_ws(websocket: WebSocket, session_id: str):
+    if not _UUID_RE.match(session_id):
+        await websocket.close(code=4400, reason="Invalid session ID")
+        return
     token = websocket.query_params.get("token", "")
     user_id = await _validate_ws_token(token, session_id)
     if user_id is None:
@@ -99,11 +105,14 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
     metrics.ws_connections_total.inc()
     metrics.ws_connections_active.inc()
 
-    await db.execute(
-        "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
-        (user_id, "WS_CONNECT", json.dumps({"session_id": session_id}),
-         websocket.client.host if websocket.client else None),
-    )
+    try:
+        await db.execute(
+            "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
+            (user_id, "WS_CONNECT", json.dumps({"session_id": session_id}),
+             websocket.client.host if websocket.client else None),
+        )
+    except Exception:
+        logger.warning("Failed to write WS_CONNECT audit log for session %s", session_id[:8])
 
     # Replay ring buffer on reconnect before subscribing to live output
     replay_requested = websocket.query_params.get("replay", "") == "1"
@@ -205,9 +214,12 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
         metrics.ws_connections_active.dec()
         pty_broadcaster.unsubscribe(session_id, output_queue)
         rate_limiter.remove(session_id)
-        await db.execute(
-            "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
-            (user_id, "WS_DISCONNECT", json.dumps({"session_id": session_id}),
-             websocket.client.host if websocket.client else None),
-        )
+        try:
+            await db.execute(
+                "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
+                (user_id, "WS_DISCONNECT", json.dumps({"session_id": session_id}),
+                 websocket.client.host if websocket.client else None),
+            )
+        except Exception:
+            logger.warning("Failed to write WS_DISCONNECT audit log for session %s", session_id[:8])
         logger.info("WS disconnected: session %s", session_id[:8])

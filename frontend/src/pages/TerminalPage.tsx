@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { TerminalGrid } from '@/components/terminal/TerminalGrid'
 import { PriorityLayout } from '@/components/terminal/PriorityLayout'
 import { SessionList } from '@/components/ui/SessionList'
@@ -36,10 +36,15 @@ export function TerminalPage() {
     return () => clearInterval(interval)
   }, [refresh])
 
-  // Refresh session list when returning from a backgrounded tab
+  // Refresh session list when returning from a backgrounded tab (>5s away)
+  const pageHiddenAt = useRef(0)
   useEffect(() => {
     const handleVisibility = () => {
-      if (!document.hidden) refresh()
+      if (document.hidden) {
+        pageHiddenAt.current = Date.now()
+      } else if (pageHiddenAt.current && Date.now() - pageHiddenAt.current > 5_000) {
+        refresh()
+      }
     }
     document.addEventListener('visibilitychange', handleVisibility)
     return () => document.removeEventListener('visibilitychange', handleVisibility)

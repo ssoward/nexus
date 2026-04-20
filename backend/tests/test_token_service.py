@@ -75,14 +75,8 @@ def test_decode_ws_token_rejects_access_token():
     assert decode_ws_token(access_token) is None
 
 
-def test_decode_access_token_accepts_ws_token_structurally():
-    """
-    decode_access_token does not check 'type', so it will parse a ws token.
-    This is acceptable — enforcement of type happens at the ws endpoint level.
-    The important direction is that decode_ws_token rejects access tokens.
-    """
+def test_decode_access_token_rejects_ws_token():
+    """decode_access_token rejects tokens with type='ws' to prevent type confusion."""
     ws_token, _, _ = create_ws_token(1, "s")
     payload = decode_access_token(ws_token)
-    # Structurally valid JWT with same secret — parses fine
-    assert payload is not None
-    assert payload.get("type") == "ws"
+    assert payload is None
