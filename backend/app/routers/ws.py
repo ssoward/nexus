@@ -105,6 +105,16 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
          websocket.client.host if websocket.client else None),
     )
 
+    # Replay ring buffer on reconnect before subscribing to live output
+    replay_requested = websocket.query_params.get("replay", "") == "1"
+    if replay_requested:
+        buffer_data = pty_broadcaster.get_raw_buffer(session_id)
+        if buffer_data:
+            await websocket.send_text(json.dumps({
+                "type": "output",
+                "data": base64.b64encode(buffer_data).decode(),
+            }))
+
     # Subscribe to the shared broadcaster — one PTY reader serves all connected tabs
     output_queue = pty_broadcaster.subscribe(session_id)
     loop = asyncio.get_event_loop()

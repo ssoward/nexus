@@ -29,6 +29,24 @@ export function useAuth() {
     return () => clearInterval(id)
   }, [isAuthenticated])
 
+  // Refresh JWT when returning from a backgrounded tab (setInterval is frozen
+  // while the tab is hidden, so the periodic refresh above may have missed).
+  useEffect(() => {
+    if (!isAuthenticated) return
+    let lastHidden = 0
+    const handleVisibility = () => {
+      if (document.hidden) {
+        lastHidden = Date.now()
+        return
+      }
+      if (lastHidden && Date.now() - lastHidden > 60_000) {
+        refreshToken().catch(() => {})
+      }
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [isAuthenticated])
+
   const logout = async () => {
     await apiLogout()
     setUser(null)

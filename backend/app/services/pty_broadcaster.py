@@ -101,6 +101,14 @@ def broadcast_shutdown() -> None:
         state.subscribers.clear()
 
 
+def get_raw_buffer(session_id: str) -> bytes:
+    """Return the complete ring buffer contents as raw bytes for replay."""
+    state = _sessions.get(session_id)
+    if state is None:
+        return b""
+    return b"".join(state.ring_buffer)
+
+
 def get_buffer(session_id: str, last_n_lines: int = 100) -> bytes:
     """Return the last N lines of terminal output from the ring buffer."""
     state = _sessions.get(session_id)

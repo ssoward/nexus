@@ -5,6 +5,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
 import { useTerminalSocket } from '@/hooks/useTerminalSocket'
+import { useVisibilityReconnect } from '@/hooks/useVisibilityReconnect'
 import { useInactivityDetector } from '@/hooks/useInactivityDetector'
 import { useKeyboardGuard } from '@/hooks/useKeyboardGuard'
 import { MobileKeyboardShim } from './MobileKeyboardShim'
@@ -79,10 +80,15 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     setDeadReason(reason)
   }, [])
 
-  const { connected, sendInput, sendResize } = useTerminalSocket({
+  const { connected, sendInput, sendResize, reconnect } = useTerminalSocket({
     sessionId: session.id,
     terminal,
     onDead: handleDead,
+  })
+
+  useVisibilityReconnect({
+    onBrowserReturn: reconnect,
+    enabled: !isDead && !!terminal,
   })
 
   // Wire terminal input → WS

@@ -18,9 +18,17 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
   const wsRef = useRef<WebSocket | null>(null)
   const retriesRef = useRef(0)
   const pingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const replayRef = useRef(false)
   const [connected, setConnected] = useState(false)
 
-  const connect = useCallback(async () => {
+  const cleanup = useCallback(() => {
+    if (pingTimerRef.current) {
+      clearInterval(pingTimerRef.current)
+      pingTimerRef.current = null
+    }
+  }, [])
+
+  const connect = useCallback(async (replay = false) => {
     try {
       let token: string
       try {
@@ -36,13 +44,20 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
         throw err
       }
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      const url = `${protocol}://${window.location.host}/ws/session/${sessionId}?token=${token}`
+      let url = `${protocol}://${window.location.host}/ws/session/${sessionId}?token=${token}`
+      if (replay) url += '&replay=1'
+      replayRef.current = replay
       const ws = new WebSocket(url)
       wsRef.current = ws
 
       ws.onopen = () => {
         setConnected(true)
         retriesRef.current = 0
+
+        // On replay, clear stale content before buffer replay arrives
+        if (replayRef.current && terminal) {
+          terminal.reset()
+        }
 
         // Sync PTY to the actual viewport size — send immediately AND after
         // a short delay (the FitAddon may not have measured yet at onopen time).
@@ -96,6 +111,10 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
           setTimeout(() => connect(), delay)
         } else if (evt.code === 4410) {
           onDead?.('Session stopped — use restart to resume')
+        } else if (retriesRef.current >= MAX_RETRIES && !noRetry) {
+          // Retries exhausted while tab may be backgrounded — don't call onDead.
+          // The visibility hook will trigger reconnect when the user returns.
+          terminal?.writeln(`\r\n\x1b[33m[Connection lost — will reconnect when tab is active]\x1b[0m\r\n`)
         }
       }
 
@@ -105,14 +124,20 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
     } catch (err) {
       toast.error(`WebSocket error: ${err instanceof Error ? err.message : 'connection failed'}`)
     }
-  }, [sessionId, terminal, onDead])
+  }, [sessionId, terminal, onDead, cleanup])
 
-  const cleanup = useCallback(() => {
-    if (pingTimerRef.current) {
-      clearInterval(pingTimerRef.current)
-      pingTimerRef.current = null
+  const reconnect = useCallback(() => {
+    // Close stale WS if any
+    cleanup()
+    if (wsRef.current) {
+      wsRef.current.onclose = null // prevent retry logic from firing
+      wsRef.current.close()
+      wsRef.current = null
     }
-  }, [])
+    // Reset retries and connect with replay
+    retriesRef.current = 0
+    connect(true)
+  }, [connect, cleanup])
 
   const sendInput = useCallback((data: string) => {
     const ws = wsRef.current
@@ -138,5 +163,5 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
     }
   }, [terminal, connect, cleanup])
 
-  return { connected, sendInput, sendResize }
+  return { connected, sendInput, sendResize, reconnect }
 }

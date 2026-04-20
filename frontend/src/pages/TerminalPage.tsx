@@ -36,6 +36,15 @@ export function TerminalPage() {
     return () => clearInterval(interval)
   }, [refresh])
 
+  // Refresh session list when returning from a backgrounded tab
+  useEffect(() => {
+    const handleVisibility = () => {
+      if (!document.hidden) refresh()
+    }
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => document.removeEventListener('visibilitychange', handleVisibility)
+  }, [refresh])
+
   const running = sessions.filter((s) => s.status === 'running')
   useAutoPromote(running)
 

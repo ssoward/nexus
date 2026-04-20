@@ -15,7 +15,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required at account creation
 - **Account lockout** — 5 failed attempts triggers a 15-minute lockout; active tokens also blocked during lockout
 - **JWT revocation** — logout immediately invalidates the token server-side
-- **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 60-minute TTL
+- **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 60-minute TTL; visibility-based refresh catches missed intervals when the tab is backgrounded
 - **Rate limiting** — 10 login attempts per minute per IP via slowapi
 - **Idle timeout** — sessions idle longer than 1 hour are stopped automatically
 - **Mobile-friendly** — overlay sidebar, dot navigation, soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos
@@ -28,6 +28,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Graceful shutdown** — ordered teardown: broadcast session_dead → close WebSockets → cancel watchdog → SIGTERM/SIGKILL PTYs → close DB
 - **Auto TLS renewal** — background task checks Tailscale cert age every 6h; renews and reloads Caddy when >60 days old
 - **Session recovery** — on graceful shutdown, ring buffers are serialized to `~/.nexus/recovery.json`; on restart, sessions marked RECOVERY_PENDING are re-spawned with buffer replay on first WS connect
+- **Visibility-triggered reconnect** — when a backgrounded tab returns after 5+ seconds, the frontend proactively refreshes the JWT and reconnects the WebSocket with ring buffer replay; PTY output accumulated while the tab was hidden is replayed into the terminal, so returning users see current state without manual refresh
 - **Workspace grouping** — named, color-coded workspace groups; sessions can be assigned to workspaces; CRUD via `/api/workspaces`
 - **Web page embedding** — embed HTTPS pages as sandboxed iframes in a split-view panel alongside terminals; CRUD via `/api/pages`
 - **Mastermind monitor** — `/mastermind` Claude Code slash command for autonomous multi-agent orchestration with CronCreate
@@ -547,11 +548,11 @@ On next login you'll be prompted to choose a new MFA method.
 
 **Terminal output jumbled / lines garbled** — This happens when the PTY column width doesn't match the browser viewport. Nexus sends the correct size on connect (with retries at 100ms and 500ms) and sends SIGWINCH to force TUI apps to redraw. If it persists: resize your browser window slightly to trigger a fresh resize, or delete and recreate the session.
 
-**Terminal output freezes / WebSocket disconnects** — Caddy's `flush_interval -1` and `read_timeout 0` must be set for WebSocket routes in the Caddyfile. Check your Caddyfile matches the template in this README.
+**Terminal output freezes / WebSocket disconnects** — Caddy's `flush_interval -1` and `read_timeout 0` must be set for WebSocket routes in the Caddyfile. Check your Caddyfile matches the template in this README. If the disconnect happened because the tab was backgrounded, the terminal will automatically reconnect and replay buffered output when you return.
 
 **"Maximum sessions reached"** — The default cap is 6 (configurable via `max_panes` in `config.yml`). Delete a stopped session to free a slot.
 
-**Session buffer empty after browser refresh** — The ring buffer survives browser reconnects but not server restarts (unless the shutdown was graceful). Check `~/.nexus/recovery.json` — if it exists, sessions marked `recovery_pending` will replay their buffer on next connect.
+**Session buffer empty after browser refresh** — The ring buffer survives browser reconnects (including backgrounded-tab reconnects with `?replay=1`) but not server restarts (unless the shutdown was graceful). Check `~/.nexus/recovery.json` — if it exists, sessions marked `recovery_pending` will replay their buffer on next connect.
 
 ---
 
@@ -801,7 +802,7 @@ nexus/
         │   ├── auth/          # LoginForm (7-step MFA), TotpForm, TotpSetupModal
         │   ├── terminal/      # TerminalPane, TerminalGrid, PriorityLayout, MobileKeybar
         │   └── ui/            # SessionList, OrchestratorPanel, PageList, HelpModal, HelpTooltip
-        ├── hooks/             # useAuth, useSession, useTerminalSocket, useInactivityDetector, useAutoPromote, …
+        ├── hooks/             # useAuth, useSession, useTerminalSocket, useVisibilityReconnect, useInactivityDetector, useAutoPromote, …
         ├── pages/             # LoginPage, TerminalPage
         ├── store/             # Zustand: authStore, sessionStore, toastStore
         └── types/             # auth.ts, session.ts, ws.ts, workspace.ts, page.ts
