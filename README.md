@@ -228,6 +228,17 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 Or just run `./start.sh` from the repo root (handles venv, frontend build, Docker, and backend).
 
+#### Running without Caddy (development)
+
+If you don't have Docker/Caddy running, the backend can serve the frontend directly. Set the `STATIC_DIR` environment variable to the frontend build directory:
+
+```bash
+export STATIC_DIR="$PWD/frontend/dist"
+# Then start the backend as above — the app is accessible at http://localhost:8000
+```
+
+This enables SPA routing (client-side routes like `/login` serve `index.html`) and static asset serving. For production use, Caddy is recommended for TLS termination and security headers.
+
 ### 7. Create your account
 
 ```bash
