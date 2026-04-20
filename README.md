@@ -15,9 +15,9 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required at account creation
 - **Account lockout** — 5 failed attempts triggers a 15-minute lockout; active tokens also blocked during lockout
 - **JWT revocation** — logout immediately invalidates the token server-side
-- **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 60-minute TTL; visibility-based refresh catches missed intervals when the tab is backgrounded
+- **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 24-hour TTL; visibility-based refresh catches missed intervals when the tab is backgrounded
 - **Rate limiting** — 10 login attempts per minute per IP via slowapi
-- **Idle timeout** — sessions idle longer than 1 hour are stopped automatically
+- **Idle timeout** — sessions idle longer than 24 hours are stopped automatically
 - **Mobile-friendly** — overlay sidebar, dot navigation, soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos
 - **Inactivity detection** — amber pulsing border and sidebar badge when a terminal has no output for 60 seconds; helps identify which session needs attention
 - **Priority Queue layout** — 80/20 split: one session gets most of the viewport, others are thumbnails; auto-promotes the most recently active session when the primary goes idle; toggle between Grid and Priority modes in the header
@@ -274,7 +274,8 @@ app:
   db_path: ~/.nexus/nexus.db   # SQLite database path (~ is expanded)
 
 session:
-  idle_timeout_seconds: 3600  # Auto-stop sessions idle longer than this
+  idle_timeout_seconds: 86400  # Auto-stop sessions idle longer than this
+  jwt_expire_minutes: 1440    # JWT token lifetime (24 hours)
 
 presets:                       # Commands available when creating a session
   - name: bash
@@ -569,7 +570,7 @@ On next login you'll be prompted to choose a new MFA method.
 
 ### Orchestrator / wctl.py
 
-**`wctl.py` returns 401** — Your `access_token` cookie expired (60-minute TTL). Log in again to get a fresh token.
+**`wctl.py` returns 401** — Your `access_token` cookie expired (24-hour TTL). Log in again to get a fresh token.
 
 **`wait` command times out** — The session may be in an unexpected state. Run `buffer SESSION_ID` to read the last output and check what the terminal is showing.
 
@@ -624,7 +625,7 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 | Rate limiting | slowapi: 10 login/min, 5/min bootstrap-totp & create-user, 30/min refresh, 20/min ws-token; Caddy pins `X-Real-IP`/`X-Forwarded-For` to the actual peer so header spoofing cannot bypass throttling |
 | Account lockout | 5 failures → 15-minute lockout stored in DB; enforced at login and on every authenticated request |
 | JWT revocation | Logout inserts JTI into `revoked_tokens`; `get_current_user` rejects revoked tokens |
-| Sliding session | `POST /api/auth/refresh` re-issues the cookie; frontend calls it every 30 min so active tabs never hit the 60-min hard TTL |
+| Sliding session | `POST /api/auth/refresh` re-issues the cookie; frontend calls it every 30 min so active tabs never hit the 24-hour hard TTL |
 | WS token security | Tokens are single-use (atomic `UPDATE...WHERE used=0` prevents race conditions), expire in 60 s, and are bound to a specific session ID |
 | TOTP replay protection | Successfully used codes are recorded (`last_totp_code` + `last_totp_at`); the same code is rejected for 90 s (the full `valid_window=1` window) |
 | Security headers | CSP (`frame-ancestors 'none'`, `connect-src 'self'`), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |

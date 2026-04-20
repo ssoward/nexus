@@ -28,7 +28,7 @@ from app.routers import auth as auth_router, sessions as sessions_router
 _s = get_settings()
 init_crypto(_s.app_secret, _s.crypto_salt)
 
-# Full schema (mirrors alembic migrations 0001 + 0002)
+# Full schema (mirrors alembic migrations 0001 + 0006)
 _SCHEMA = [
     """CREATE TABLE IF NOT EXISTS users (
         id                     INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -39,6 +39,7 @@ _SCHEMA = [
         lockout_until          TEXT,
         last_totp_code         TEXT,
         last_totp_at           TEXT,
+        mfa_method             TEXT DEFAULT NULL,
         created_at             TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
     """CREATE TABLE IF NOT EXISTS sessions (
@@ -81,6 +82,14 @@ _SCHEMA = [
         revoked_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
     "CREATE INDEX IF NOT EXISTS idx_revoked_tokens_expires_at ON revoked_tokens(expires_at)",
+    """CREATE TABLE IF NOT EXISTS email_otp_codes (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        hashed_code TEXT NOT NULL,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        expires_at  TEXT NOT NULL,
+        used        INTEGER NOT NULL DEFAULT 0
+    )""",
 ]
 
 

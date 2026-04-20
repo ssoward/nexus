@@ -21,7 +21,7 @@ async def _add_totp(username: str, password: str) -> tuple[int, str]:
     user_id = row["id"]
     secret = pyotp.random_base32()
     await db.execute(
-        "UPDATE users SET encrypted_totp_secret = ? WHERE id = ?",
+        "UPDATE users SET encrypted_totp_secret = ?, mfa_method = 'totp' WHERE id = ?",
         (encrypt_totp_secret(secret, user_id), user_id),
     )
     return user_id, secret
@@ -41,7 +41,7 @@ class TestLogin:
         assert r.status_code == 200
         body = r.json()
         assert body["ok"] is False
-        assert body["needs_totp_setup"] is True
+        assert body["needs_mfa_setup"] is True
         assert "access_token" not in r.cookies
 
     async def test_wrong_password(self, client: AsyncClient, test_user: dict):
@@ -197,7 +197,7 @@ class TestCreateUser:
     async def test_creates_first_user(self, client: AsyncClient, setup_db):
         r = await client.post(
             "/api/auth/create-user",
-            json={"username": "newuser", "password": "SecurePass1!longEnough"},
+            json={"username": "newuser@example.com", "password": "SecurePass1!longEnough"},
         )
         assert r.status_code == 200
         assert r.json()["ok"] is True
@@ -205,14 +205,14 @@ class TestCreateUser:
     async def test_disabled_after_first_user_exists(self, client: AsyncClient, test_user: dict):
         r = await client.post(
             "/api/auth/create-user",
-            json={"username": "second", "password": "SecurePass1!longEnough"},
+            json={"username": "second@example.com", "password": "SecurePass1!longEnough"},
         )
         assert r.status_code == 403
 
     async def test_rejects_weak_password(self, client: AsyncClient, setup_db):
         r = await client.post(
             "/api/auth/create-user",
-            json={"username": "newuser", "password": "short"},
+            json={"username": "newuser@example.com", "password": "short"},
         )
         assert r.status_code == 422
 
@@ -226,14 +226,14 @@ class TestCreateUser:
     async def test_rejects_password_missing_uppercase(self, client: AsyncClient, setup_db):
         r = await client.post(
             "/api/auth/create-user",
-            json={"username": "newuser", "password": "alllowercase1!enough"},
+            json={"username": "newuser@example.com", "password": "alllowercase1!enough"},
         )
         assert r.status_code == 422
 
     async def test_rejects_password_missing_digit(self, client: AsyncClient, setup_db):
         r = await client.post(
             "/api/auth/create-user",
-            json={"username": "newuser", "password": "NoDigitsHereAtAll!long"},
+            json={"username": "newuser@example.com", "password": "NoDigitsHereAtAll!long"},
         )
         assert r.status_code == 422
 

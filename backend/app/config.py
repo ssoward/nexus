@@ -131,6 +131,8 @@ def get_settings() -> Settings:
             env_overrides["db_path"] = app["db_path"]
         if session.get("idle_timeout_seconds"):
             env_overrides["session_idle_timeout_seconds"] = session["idle_timeout_seconds"]
+        if session.get("jwt_expire_minutes"):
+            env_overrides["jwt_expire_minutes"] = session["jwt_expire_minutes"]
         if app.get("log_format"):
             env_overrides["log_format"] = app["log_format"]
         if yaml_config.get("presets"):

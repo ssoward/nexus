@@ -314,6 +314,12 @@ async def bootstrap_totp(
 @limiter.limit("5/minute")
 async def create_user(request: Request, req: CreateUserRequest):
     """Register a new account. After creation, the user must set up MFA."""
+    user_count = await db.fetchone("SELECT COUNT(*) AS n FROM users")
+    if user_count and user_count["n"] > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Registration is closed — this instance already has an owner",
+        )
     existing = await db.fetchone(
         "SELECT id FROM users WHERE username = ?", (req.username,)
     )

@@ -8,6 +8,7 @@ app:
 
 session:
   idle_timeout_seconds: 86400
+  jwt_expire_minutes: 1440
 
 presets:
   - name: bash
