@@ -7,7 +7,7 @@ app:
   db_path: ~/.nexus/nexus.db
 
 session:
-  idle_timeout_seconds: 3600
+  idle_timeout_seconds: 86400
 
 presets:
   - name: bash
