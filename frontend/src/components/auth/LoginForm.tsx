@@ -117,8 +117,8 @@ export function LoginForm() {
       await resendOtp(email, password)
       setResendMsg('New code sent — check your email.')
     } catch (err: unknown) {
-      const status = (err as { response?: { status: number } }).response?.status
-      setError(status === 429 ? 'Wait before resending.' : 'Failed to resend code.')
+      const detail = (err as { response?: { data?: { detail?: string }; status?: number } }).response
+      setError(detail?.status === 429 ? 'Wait before resending.' : (detail?.data?.detail ?? 'Failed to resend code.'))
     } finally { setLoading(false) }
   }
 
@@ -136,8 +136,9 @@ export function LoginForm() {
       } else {
         setStep('email_otp')
       }
-    } catch {
-      setError('Failed to switch verification method.')
+    } catch (err) {
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      setError(detail ?? 'Failed to switch verification method.')
     } finally { setLoading(false) }
   }
 

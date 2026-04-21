@@ -25,14 +25,14 @@ describe('LoginForm', () => {
 
   it('renders username and password inputs', () => {
     render(<LoginForm />)
-    expect(screen.getByRole('textbox')).toBeInTheDocument() // username
+    expect(screen.getByRole('textbox')).toBeInTheDocument() // email
     expect(document.querySelector('input[type="password"]')).toBeInTheDocument()
   })
 
   it('shows error when submitting empty fields', async () => {
     render(<LoginForm />)
-    await userEvent.click(screen.getByRole('button', { name: /continue/i }))
-    expect(screen.getByText(/username and password are required/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    expect(screen.getByText(/email and password are required/i)).toBeInTheDocument()
   })
 
   it('shows TOTP step when server returns needs_totp', async () => {
@@ -40,9 +40,9 @@ describe('LoginForm', () => {
     vi.mocked(login).mockResolvedValueOnce({ ok: false, needs_totp: true })
 
     const { container } = render(<LoginForm />)
-    await userEvent.type(container.querySelector('input[autocomplete="username"]')!, 'alice')
+    await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'secret123')
-    await userEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/authenticator code/i)).toBeInTheDocument()
@@ -54,9 +54,9 @@ describe('LoginForm', () => {
     vi.mocked(login).mockResolvedValueOnce({ ok: true, username: 'alice' })
 
     const { container } = render(<LoginForm />)
-    await userEvent.type(container.querySelector('input[autocomplete="username"]')!, 'alice')
+    await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'secret123')
-    await userEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => {
       expect(locationRef.href).toBe('/')
@@ -68,9 +68,9 @@ describe('LoginForm', () => {
     vi.mocked(login).mockRejectedValueOnce({ response: { status: 401 } })
 
     const { container } = render(<LoginForm />)
-    await userEvent.type(container.querySelector('input[autocomplete="username"]')!, 'alice')
+    await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'bad')
-    await userEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument()
@@ -82,9 +82,9 @@ describe('LoginForm', () => {
     vi.mocked(login).mockRejectedValueOnce({ response: { status: 429 } })
 
     const { container } = render(<LoginForm />)
-    await userEvent.type(container.querySelector('input[autocomplete="username"]')!, 'alice')
+    await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'pass')
-    await userEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/too many attempts/i)).toBeInTheDocument()
@@ -96,13 +96,13 @@ describe('LoginForm', () => {
     vi.mocked(login).mockResolvedValueOnce({ ok: false, needs_totp: true })
 
     const { container } = render(<LoginForm />)
-    await userEvent.type(container.querySelector('input[autocomplete="username"]')!, 'alice')
+    await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'secret123')
-    await userEvent.click(screen.getByRole('button', { name: /continue/i }))
+    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
 
     await waitFor(() => screen.getByText(/authenticator code/i))
     await userEvent.click(screen.getByRole('button', { name: /back/i }))
 
-    expect(screen.getByRole('button', { name: /continue/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
   })
 })

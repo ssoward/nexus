@@ -102,7 +102,7 @@ EOF
 
 > **Gmail users:** Create an [App Password](https://myaccount.google.com/apppasswords) (requires 2FA enabled on your Google account). Use the 16-character app password as `SMTP_PASSWORD`.
 
-Without SMTP configured, users can still register and use TOTP (authenticator app) for MFA. The "Email Code" option only appears when SMTP is configured.
+Without SMTP configured, users can still register and use TOTP (authenticator app) for MFA. The "Email Code" option is always visible on the login screen; switching to it when SMTP is not configured returns a descriptive error rather than a generic failure.
 
 ### 3. Configure Tailscale HTTPS (recommended)
 
@@ -552,6 +552,14 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 ```
 On next login you'll be prompted to choose a new MFA method.
 
+**"Email Code" switch returns 503** — SMTP is not configured. Add `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` to `.env` and restart the backend. See Quick Start step 2b.
+
+**`setup-totp` returns 500 after changing secrets** — The TOTP secret in the database was encrypted with a different `APP_SECRET`/`CRYPTO_SALT` and can no longer be decrypted. Clear it so the user can re-enroll:
+```bash
+sqlite3 ~/.nexus/nexus.db "UPDATE users SET encrypted_totp_secret = NULL WHERE username = 'your-email@example.com';"
+```
+The TOTP Setup modal will then generate a fresh QR code without asking for the old code. **Note:** changing `APP_SECRET` or `CRYPTO_SALT` invalidates all encrypted TOTP secrets — plan secret rotation accordingly (see Pre-production checklist).
+
 ---
 
 ### Session issues
@@ -635,7 +643,7 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 | Session liveness | Only the background watchdog marks sessions stopped (every 5 s); the `list_sessions` endpoint never mutates status, preventing a frontend-poll race that killed healthy PTYs |
 | Idle timeout | Sessions inactive for > 1 hour are stopped by the background watchdog |
 | WebLinks filtering | xterm.js `WebLinksAddon` only opens `http://` or `https://` URLs |
-| TOTP re-setup | Replacing an existing TOTP secret requires the current valid code — prevents session-hijack lockout |
+| TOTP re-setup | Replacing an existing TOTP secret requires the current valid code — prevents session-hijack lockout. The Setup Authenticator modal auto-attempts setup; the "enter current code" prompt only appears when a secret already exists (HTTP 403). |
 | Email OTP | 6-digit codes bcrypt-hashed in `email_otp_codes` table, 10-min TTL, single-use, previous codes invalidated on resend; `resend-otp` rate-limited at 3/min |
 | Self-registration | Open registration with email validation; duplicate emails return 409; rate-limited at 5/min; MFA setup mandatory before first session access |
 | Input validation | Session preset names validated at Pydantic level (alphanumeric, max 64 chars); error messages never echo raw user input |

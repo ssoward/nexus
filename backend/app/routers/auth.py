@@ -399,7 +399,10 @@ async def setup_mfa(
             (row["id"], "MFA_SETUP_EMAIL_OTP", ip),
         )
         from app.services.otp_service import send_email_otp
-        await send_email_otp(row["id"], username)
+        try:
+            await send_email_otp(row["id"], username)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
         return {"method": "email_otp", "message": "Verification code sent to your email"}
 
 
@@ -424,7 +427,10 @@ async def resend_otp(
         raise HTTPException(status_code=400, detail="Email OTP not configured for this account")
 
     from app.services.otp_service import send_email_otp
-    await send_email_otp(row["id"], username)
+    try:
+        await send_email_otp(row["id"], username)
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
     return {"ok": True, "message": "Code resent"}
 
 
@@ -474,7 +480,10 @@ async def switch_mfa(
             return {"method": "totp", "needs_setup": False}
 
     else:  # email_otp
-        await db.execute("UPDATE users SET mfa_method = 'email_otp' WHERE id = ?", (row["id"],))
         from app.services.otp_service import send_email_otp
-        await send_email_otp(row["id"], username)
+        try:
+            await send_email_otp(row["id"], username)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+        await db.execute("UPDATE users SET mfa_method = 'email_otp' WHERE id = ?", (row["id"],))
         return {"method": "email_otp", "needs_setup": False}

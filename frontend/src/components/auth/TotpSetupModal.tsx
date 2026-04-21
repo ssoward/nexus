@@ -11,21 +11,38 @@ interface Props {
 }
 
 export function TotpSetupModal({ onClose }: Props) {
+  const [step, setStep] = useState<'loading' | 'confirm' | 'qr' | 'done'>('loading')
+  const [currentCode, setCurrentCode] = useState('')
   const [qr, setQr] = useState<string | null>(null)
   const [uri, setUri] = useState('')
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const [done, setDone] = useState(false)
 
-  useEffect(() => {
-    client.post<TotpSetupResponse>('/auth/setup-totp')
-      .then(res => {
-        setQr(res.data.qr_code_base64)
-        setUri(res.data.provisioning_uri)
-      })
-      .catch(() => setError('Failed to generate QR code. Try signing out and back in.'))
-      .finally(() => setLoading(false))
-  }, [])
+  const callSetup = async (code?: string) => {
+    setLoading(true)
+    setError('')
+    try {
+      const form = new FormData()
+      if (code) form.append('totp_code', code)
+      const res = await client.post<TotpSetupResponse>('/auth/setup-totp', form)
+      setQr(res.data.qr_code_base64)
+      setUri(res.data.provisioning_uri)
+      setStep('qr')
+    } catch (err) {
+      const status = (err as { response?: { status?: number; data?: { detail?: string } } }).response?.status
+      const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
+      if (status === 403) {
+        setStep('confirm')
+      } else {
+        setError(detail ?? 'Failed to generate QR code.')
+        if (step === 'loading') setStep('confirm')
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { callSetup() }, [])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
@@ -40,15 +57,38 @@ export function TotpSetupModal({ onClose }: Props) {
           </button>
         </div>
 
-        {loading && (
+        {step === 'loading' && (
           <p className="text-sm font-mono text-terminal-fg/50 text-center py-4">Generating…</p>
         )}
 
-        {error && (
-          <p className="text-xs text-red-400 font-mono">{error}</p>
+        {step === 'confirm' && (
+          <div className="space-y-3">
+            <p className="text-xs text-terminal-fg/60 font-mono">
+              Enter your current 6-digit TOTP code to authorize replacing your authenticator.
+            </p>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              placeholder="000000"
+              value={currentCode}
+              onChange={e => setCurrentCode(e.target.value.replace(/\D/g, ''))}
+              className="w-full px-3 py-2 rounded bg-[#0d1117] border border-terminal-border text-terminal-fg font-mono text-center tracking-widest text-lg focus:outline-none focus:border-terminal-active"
+              autoFocus
+            />
+            {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
+            <button
+              onClick={() => callSetup(currentCode)}
+              disabled={loading || currentCode.length !== 6}
+              className="w-full py-2 rounded bg-terminal-active hover:bg-terminal-active/80 disabled:opacity-40 text-white font-mono text-sm"
+            >
+              {loading ? 'Verifying…' : 'Continue'}
+            </button>
+          </div>
         )}
 
-        {!loading && !error && !done && qr && (
+        {step === 'qr' && qr && (
           <div className="space-y-3">
             <p className="text-xs text-terminal-fg/60 font-mono">
               Scan with Google Authenticator, Authy, or any TOTP app.
@@ -61,7 +101,7 @@ export function TotpSetupModal({ onClose }: Props) {
             />
             <p className="text-xs text-terminal-fg/30 font-mono break-all">{uri}</p>
             <button
-              onClick={() => setDone(true)}
+              onClick={() => setStep('done')}
               className="w-full py-2 rounded bg-green-700 hover:bg-green-600 text-white font-mono text-sm"
             >
               Done — I've scanned it
@@ -69,7 +109,7 @@ export function TotpSetupModal({ onClose }: Props) {
           </div>
         )}
 
-        {done && (
+        {step === 'done' && (
           <div className="space-y-3">
             <p className="text-sm text-green-400 font-mono">
               Authenticator configured. Your next sign-in will require the 6-digit code.
