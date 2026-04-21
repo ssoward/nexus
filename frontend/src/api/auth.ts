@@ -79,6 +79,21 @@ export async function bootstrapTotp(
   return res.data
 }
 
+export async function requestRecovery(username: string): Promise<{ ok: boolean; message: string }> {
+  const form = new FormData()
+  form.append('username', username)
+  const res = await client.post('/auth/recovery/request', form)
+  return res.data as { ok: boolean; message: string }
+}
+
+export async function resetRecovery(username: string, token: string): Promise<{ ok: boolean }> {
+  const form = new FormData()
+  form.append('username', username)
+  form.append('token', token)
+  const res = await client.post('/auth/recovery/reset', form)
+  return res.data as { ok: boolean }
+}
+
 export async function refreshToken(): Promise<void> {
   await client.post('/auth/refresh')
 }

@@ -11,6 +11,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Self-registration** — anyone can create an account; username is an email address
 - **Flexible MFA** — choose Authenticator App (TOTP) or Email Code (OTP via SMTP) during setup; switch between methods at any time from the login verification screen ("Use email code instead" / "Use authenticator instead")
 - **Email OTP** — 6-digit codes sent via SMTP, bcrypt-hashed, 10-minute TTL, replay-protected; "Resend code" button on login
+- **Account recovery** — "Lost access to authenticator?" link on the TOTP login step emails a single-use reset link (15-minute TTL) that clears MFA and forces re-enrollment on next login; all resets written to audit log
 - **TOTP two-factor authentication** — authenticator-app code (Google Authenticator, Authy, 1Password); QR setup built into login flow
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required at account creation
 - **Account lockout** — 5 failed attempts triggers a 15-minute lockout; active tokens also blocked during lockout
@@ -348,6 +349,8 @@ All API routes are under `/api/`.
 | POST | `/api/auth/setup-mfa` | Form password | Choose TOTP or email_otp; returns QR or sends code |
 | POST | `/api/auth/switch-mfa` | Form password | Switch between TOTP and email OTP from login screen |
 | POST | `/api/auth/resend-otp` | Form password | Resend email OTP code (3/min rate limit) |
+| POST | `/api/auth/recovery/request` | — | Send MFA reset link to account email (3/hour rate limit) |
+| POST | `/api/auth/recovery/reset` | — | Consume recovery token; clears MFA, forces re-enrollment (5/hour rate limit) |
 | POST | `/api/auth/refresh` | Cookie | Re-issue JWT cookie (called every 30 min by frontend) |
 | GET | `/api/auth/ws-token` | Cookie | Single-use 60-second WS token for a session |
 | POST | `/api/auth/setup-totp` | Cookie | Regenerate TOTP secret; returns QR code |
@@ -552,6 +555,8 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 ```
 On next login you'll be prompted to choose a new MFA method.
 
+**"Lost access to authenticator?" link not working** — SMTP must be configured. If SMTP is not set up, the request will return 503. Add credentials to `.env` and restart the backend (see Quick Start step 2b).
+
 **"Email Code" switch returns 503** — SMTP is not configured. Add `SMTP_HOST`, `SMTP_USER`, `SMTP_PASSWORD`, and `SMTP_FROM` to `.env` and restart the backend. See Quick Start step 2b.
 
 **`setup-totp` returns 500 after changing secrets** — The TOTP secret in the database was encrypted with a different `APP_SECRET`/`CRYPTO_SALT` and can no longer be decrypted. Clear it so the user can re-enroll:
@@ -606,6 +611,7 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 | `revoked_tokens` | Logout-revoked JWT JTIs; pruned when TTL expires |
 | `audit_log` | Append-only log of auth and session events |
 | `email_otp_codes` | Pending email OTP codes: bcrypt-hashed, 10-min TTL, single-use |
+| `account_recovery_tokens` | Single-use MFA reset tokens: SHA-256-hashed, 15-min TTL; consumed on use |
 | `workspaces` | Named, color-coded workspace groups for organizing sessions |
 | `pages` | Embedded HTTPS web pages (iframe tabs) |
 
@@ -645,6 +651,7 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 | WebLinks filtering | xterm.js `WebLinksAddon` only opens `http://` or `https://` URLs |
 | TOTP re-setup | Replacing an existing TOTP secret requires the current valid code — prevents session-hijack lockout. The Setup Authenticator modal auto-attempts setup; the "enter current code" prompt only appears when a secret already exists (HTTP 403). |
 | Email OTP | 6-digit codes bcrypt-hashed in `email_otp_codes` table, 10-min TTL, single-use, previous codes invalidated on resend; `resend-otp` rate-limited at 3/min |
+| Account recovery | Recovery tokens SHA-256-hashed, 15-min TTL, single-use; previous tokens voided on new request; resets audit-logged; rate-limited 3/hour (request) and 5/hour (reset) per IP |
 | Self-registration | Open registration with email validation; duplicate emails return 409; rate-limited at 5/min; MFA setup mandatory before first session access |
 | Input validation | Session preset names validated at Pydantic level (alphanumeric, max 64 chars); error messages never echo raw user input |
 | DB permissions | Database directory created with `0o700` — other local users cannot read hashed passwords or encrypted TOTP secrets |
@@ -814,16 +821,17 @@ nexus/
 │           ├── 0003_totp_replay_protection.py
 │           ├── 0004_workspaces.py
 │           ├── 0005_pages.py
-│           └── 0006_email_otp.py
+│           ├── 0006_email_otp.py
+│           └── 0007_account_recovery.py
 └── frontend/
     └── src/
         ├── api/               # axios client, auth.ts, sessions.ts, orchestration.ts, workspaces.ts, pages.ts
         ├── components/
-        │   ├── auth/          # LoginForm (7-step MFA), TotpForm, TotpSetupModal
+        │   ├── auth/          # LoginForm (multi-step MFA + recovery), TotpForm, TotpSetupModal
         │   ├── terminal/      # TerminalPane, TerminalGrid, PriorityLayout, MobileKeybar
         │   └── ui/            # SessionList, OrchestratorPanel, PageList, HelpModal, HelpTooltip
         ├── hooks/             # useAuth, useSession, useTerminalSocket, useVisibilityReconnect, useInactivityDetector, useAutoPromote, …
-        ├── pages/             # LoginPage, TerminalPage
+        ├── pages/             # LoginPage, TerminalPage, RecoveryPage
         ├── store/             # Zustand: authStore, sessionStore, toastStore
         └── types/             # auth.ts, session.ts, ws.ts, workspace.ts, page.ts
 ```

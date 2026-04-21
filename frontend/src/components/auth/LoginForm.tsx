@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { login, register, setupMfa, resendOtp, switchMfa } from '@/api/auth'
+import { login, register, setupMfa, resendOtp, switchMfa, requestRecovery } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
 import type { User } from '@/types/auth'
 
@@ -11,6 +11,7 @@ type Step =
   | 'email_otp_setup'
   | 'totp'
   | 'email_otp'
+  | 'recovery_sent'
 
 export function LoginForm() {
   const [step, setStep] = useState<Step>('credentials')
@@ -139,6 +140,17 @@ export function LoginForm() {
     } catch (err) {
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
       setError(detail ?? 'Failed to switch verification method.')
+    } finally { setLoading(false) }
+  }
+
+  // ── Account recovery ──────────────────────────────────────────────
+  const handleRequestRecovery = async () => {
+    setLoading(true); setError('')
+    try {
+      await requestRecovery(email)
+      setStep('recovery_sent')
+    } catch {
+      setError('Failed to send recovery email. Try again.')
     } finally { setLoading(false) }
   }
 
@@ -331,8 +343,28 @@ export function LoginForm() {
               className="w-full py-1 text-xs text-terminal-fg/40 font-mono hover:text-terminal-active">
               Use email code instead
             </button>
+            <button type="button" onClick={handleRequestRecovery} disabled={loading}
+              className="w-full py-1 text-xs text-terminal-fg/30 font-mono hover:text-terminal-fg/60">
+              Lost access to authenticator?
+            </button>
             {backButton()}
           </form>
+        )}
+
+        {/* ── Recovery sent ────────────────────────────────────────── */}
+        {step === 'recovery_sent' && (
+          <div className="space-y-4">
+            <p className="text-sm font-mono text-green-400">Recovery email sent</p>
+            <p className="text-xs font-mono text-terminal-fg/60">
+              If <span className="text-terminal-fg">{email}</span> has an account, a reset link
+              has been sent. Check your inbox and click the link to clear your MFA — it expires
+              in 15 minutes.
+            </p>
+            <p className="text-xs font-mono text-terminal-fg/40">
+              After clicking the link you'll be prompted to set up a new verification method on your next login.
+            </p>
+            {backButton()}
+          </div>
         )}
 
         {/* ── Email OTP (returning user) ───────────────────────────── */}

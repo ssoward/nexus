@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { LoginPage } from '@/pages/LoginPage'
 import { TerminalPage } from '@/pages/TerminalPage'
+import { RecoveryPage } from '@/pages/RecoveryPage'
 import { useAuth } from '@/hooks/useAuth'
 import { ToastContainer } from '@/components/ui/ToastContainer'
 
@@ -28,6 +29,7 @@ export default function App() {
       <ToastContainer />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/recover" element={<RecoveryPage />} />
         <Route
           path="/"
           element={

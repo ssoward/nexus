@@ -1,9 +1,12 @@
+import asyncio
+import hashlib
 import io
 import json
 import base64
 import logging
 import re
-from datetime import datetime, timezone
+import secrets
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 import pyotp
@@ -496,3 +499,84 @@ async def switch_mfa(
             raise HTTPException(status_code=503, detail=str(exc))
         await db.execute("UPDATE users SET mfa_method = 'email_otp' WHERE id = ?", (row["id"],))
         return {"method": "email_otp", "needs_setup": False}
+
+
+RECOVERY_TTL_MINUTES = 15
+
+
+@router.post("/recovery/request")
+@limiter.limit("3/hour")
+async def request_recovery(
+    request: Request,
+    username: str = Form(...),
+):
+    """Send an MFA reset link to the account email. Always returns ok to prevent enumeration."""
+    row = await db.fetchone("SELECT id FROM users WHERE username = ?", (username,))
+    if row:
+        token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=RECOVERY_TTL_MINUTES)).isoformat()
+
+        await db.execute(
+            "UPDATE account_recovery_tokens SET used = 1 WHERE user_id = ? AND used = 0",
+            (row["id"],),
+        )
+        await db.execute(
+            "INSERT INTO account_recovery_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+            (row["id"], token_hash, expires_at),
+        )
+
+        scheme = request.headers.get("x-forwarded-proto", "https")
+        host = request.headers.get("host", "localhost")
+        recovery_url = f"{scheme}://{host}/recover?token={token}&username={username}"
+
+        from app.services.email_service import send_recovery_email
+        try:
+            await asyncio.to_thread(send_recovery_email, username, recovery_url)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=503, detail=str(exc))
+
+    return {"ok": True, "message": "If that account exists, a recovery link has been sent."}
+
+
+@router.post("/recovery/reset")
+@limiter.limit("5/hour")
+async def reset_recovery(
+    request: Request,
+    username: str = Form(...),
+    token: str = Form(...),
+):
+    """Consume a recovery token and clear the user's MFA, forcing re-enrollment on next login."""
+    row = await db.fetchone("SELECT id FROM users WHERE username = ?", (username,))
+    if not row:
+        raise HTTPException(status_code=400, detail="Invalid or expired recovery link.")
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    token_row = await db.fetchone(
+        "SELECT id, expires_at FROM account_recovery_tokens "
+        "WHERE user_id = ? AND token_hash = ? AND used = 0",
+        (row["id"], token_hash),
+    )
+    if not token_row:
+        raise HTTPException(status_code=400, detail="Invalid or expired recovery link.")
+
+    expires_at = datetime.fromisoformat(token_row["expires_at"])
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Recovery link has expired.")
+
+    await db.execute(
+        "UPDATE account_recovery_tokens SET used = 1 WHERE id = ?",
+        (token_row["id"],),
+    )
+    await db.execute(
+        "UPDATE users SET encrypted_totp_secret = NULL, mfa_method = NULL WHERE id = ?",
+        (row["id"],),
+    )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (row["id"], "MFA_RESET_VIA_RECOVERY", request.client.host if request.client else "unknown"),
+    )
+
+    return {"ok": True}

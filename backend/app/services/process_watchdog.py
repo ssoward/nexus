@@ -69,9 +69,12 @@ async def watch_processes(db) -> None:
                 await db.execute(
                     "DELETE FROM revoked_tokens WHERE expires_at < ?", (now_iso,)
                 )
-                # Clean up expired email OTP codes
+                # Clean up expired email OTP codes and recovery tokens
                 from app.services.otp_service import cleanup_expired_otps
                 await cleanup_expired_otps()
+                await db.execute(
+                    "DELETE FROM account_recovery_tokens WHERE expires_at < datetime('now', '-1 hour')"
+                )
 
         except asyncio.CancelledError:
             logger.info("Process watchdog cancelled")
