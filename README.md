@@ -343,7 +343,7 @@ All API routes are under `/api/`.
 | **Auth** | | | |
 | POST | `/api/auth/login` | — | Form: `username`, `password`, `totp_code` (optional first step) |
 | POST | `/api/auth/logout` | Cookie | Revokes JWT, clears cookie |
-| GET | `/api/auth/me` | Cookie | Returns `{id, username}` |
+| GET | `/api/auth/me` | Cookie | Returns `{id, username, mfa_method, has_totp}` |
 | POST | `/api/auth/create-user` | — | Self-registration (email + password) |
 | POST | `/api/auth/setup-mfa` | Form password | Choose TOTP or email_otp; returns QR or sends code |
 | POST | `/api/auth/switch-mfa` | Form password | Switch between TOTP and email OTP from login screen |
