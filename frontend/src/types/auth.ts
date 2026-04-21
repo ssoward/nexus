@@ -1,6 +1,8 @@
 export interface User {
   id: number
   username: string
+  mfa_method?: string | null
+  has_totp?: boolean
 }
 
 export interface LoginRequest {

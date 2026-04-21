@@ -224,7 +224,16 @@ async def setup_totp(
 
 @router.get("/me")
 async def me(current_user: dict = Depends(get_current_user)):
-    return {"id": current_user["id"], "username": current_user["username"]}
+    row = await db.fetchone(
+        "SELECT encrypted_totp_secret, mfa_method FROM users WHERE id = ?",
+        (current_user["id"],),
+    )
+    return {
+        "id": current_user["id"],
+        "username": current_user["username"],
+        "mfa_method": row["mfa_method"] if row else None,
+        "has_totp": bool(row and row["encrypted_totp_secret"]),
+    }
 
 
 class CreateUserRequest(BaseModel):

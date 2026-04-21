@@ -15,7 +15,7 @@ import { useSessionStore } from '@/store/sessionStore'
 import { useAutoPromote } from '@/hooks/useAutoPromote'
 
 export function TerminalPage() {
-  const { logout } = useAuth()
+  const { logout, user } = useAuth()
   const { sessions, refresh } = useSession()
   const isMobile = useIsMobile()
   const { layoutMode, setLayoutMode, autoPromote, setAutoPromote } = useSessionStore()
@@ -184,7 +184,7 @@ export function TerminalPage() {
           </button>
         </header>
 
-        {showTotpSetup && <TotpSetupModal onClose={() => setShowTotpSetup(false)} />}
+        {showTotpSetup && <TotpSetupModal hasTotp={user?.has_totp ?? false} onClose={() => setShowTotpSetup(false)} />}
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
         <div className="flex flex-1 min-h-0">

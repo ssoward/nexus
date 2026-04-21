@@ -7,11 +7,14 @@ interface TotpSetupResponse {
 }
 
 interface Props {
+  hasTotp: boolean
   onClose: () => void
 }
 
-export function TotpSetupModal({ onClose }: Props) {
-  const [step, setStep] = useState<'loading' | 'confirm' | 'qr' | 'done'>('loading')
+export function TotpSetupModal({ hasTotp, onClose }: Props) {
+  const [step, setStep] = useState<'loading' | 'confirm' | 'qr' | 'done'>(
+    hasTotp ? 'confirm' : 'loading'
+  )
   const [currentCode, setCurrentCode] = useState('')
   const [qr, setQr] = useState<string | null>(null)
   const [uri, setUri] = useState('')
@@ -29,20 +32,17 @@ export function TotpSetupModal({ onClose }: Props) {
       setUri(res.data.provisioning_uri)
       setStep('qr')
     } catch (err) {
-      const status = (err as { response?: { status?: number; data?: { detail?: string } } }).response?.status
       const detail = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail
-      if (status === 403) {
-        setStep('confirm')
-      } else {
-        setError(detail ?? 'Failed to generate QR code.')
-        if (step === 'loading') setStep('confirm')
-      }
+      setError(detail ?? 'Failed to generate QR code.')
+      if (step === 'loading') setStep('confirm')
     } finally {
       setLoading(false)
     }
   }
 
-  useEffect(() => { callSetup() }, [])
+  useEffect(() => {
+    if (!hasTotp) callSetup()
+  }, [])
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70">
