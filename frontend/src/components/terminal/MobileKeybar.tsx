@@ -1,4 +1,7 @@
+import { useCallback } from 'react'
 import type { Terminal } from '@xterm/xterm'
+import { useVoiceInput } from '@/hooks/useVoiceInput'
+import { toast } from '@/store/toastStore'
 
 interface KeyDef {
   label: string
@@ -39,6 +42,12 @@ interface Props {
  * never steals focus away from the hidden keyboard-guard input.
  */
 export function MobileKeybar({ terminal, isVisible }: Props) {
+  const handleTranscript = useCallback(
+    (text: string) => terminal?.paste(text),
+    [terminal]
+  )
+  const { isListening, isSupported, toggle: toggleVoice } = useVoiceInput(handleTranscript)
+
   if (!isVisible) return null
 
   const send = (e: React.PointerEvent, seq: string) => {
@@ -51,18 +60,27 @@ export function MobileKeybar({ terminal, isVisible }: Props) {
     try {
       const text = await navigator.clipboard.readText()
       if (text) terminal?.paste(text)
+      else toast.warning('Clipboard is empty')
     } catch {
-      // Clipboard permission denied or API unavailable — silently ignore
+      toast.warning('Clipboard access denied — use long-press paste instead')
     }
+  }
+
+  const handleVoice = (e: React.PointerEvent) => {
+    e.preventDefault()
+    toggleVoice()
   }
 
   const btnClass =
     'shrink-0 min-w-[40px] h-8 px-2 text-xs font-mono rounded border border-terminal-border bg-[#161b22] text-terminal-fg/70 active:bg-terminal-active/20 active:text-terminal-fg select-none'
 
+  const micClass = isListening
+    ? 'shrink-0 min-w-[40px] h-8 px-2 text-xs font-mono rounded border border-red-700 bg-red-900/40 text-red-400 select-none animate-pulse'
+    : btnClass
+
   return (
     <div
       className="shrink-0 flex overflow-x-auto no-scrollbar bg-[#0d1117] border-b border-terminal-border px-1 py-[3px] gap-[3px]"
-      // Smooth momentum scroll on iOS
       style={{ WebkitOverflowScrolling: 'touch' } as React.CSSProperties}
     >
       {/* Fixed-sequence keys */}
@@ -87,6 +105,18 @@ export function MobileKeybar({ terminal, isVisible }: Props) {
       >
         Paste
       </button>
+
+      {/* Voice-to-text — only shown when browser supports SpeechRecognition */}
+      {isSupported && (
+        <button
+          title={isListening ? 'Stop recording' : 'Voice input — speak a command'}
+          onPointerDown={handleVoice}
+          className={micClass}
+          style={{ touchAction: 'manipulation' }}
+        >
+          {isListening ? 'Stop' : 'Mic'}
+        </button>
+      )}
 
       {/* Remaining fixed-sequence keys */}
       {KEYS.slice(2).map(({ label, title, seq }) => (

@@ -19,10 +19,10 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 24-hour TTL; visibility-based refresh catches missed intervals when the tab is backgrounded
 - **Rate limiting** — 10 login attempts per minute per IP via slowapi
 - **Idle timeout** — sessions idle longer than 24 hours are stopped automatically
-- **Mobile-friendly** — overlay sidebar, dot navigation, soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos
+- **Mobile-friendly** — overlay sidebar, dot navigation, soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos; **Mic** button for voice-to-text input when the browser supports the Web Speech API
 - **Inactivity detection** — amber pulsing border and sidebar badge when a terminal has no output for 60 seconds; helps identify which session needs attention
 - **Priority Queue layout** — 80/20 split: one session gets most of the viewport, others are thumbnails; auto-promotes the most recently active session when the primary goes idle; toggle between Grid and Priority modes in the header
-- **Mastermind orchestration** — HTTP API (`/api/orchestration/*`) to read terminal buffers, send keystrokes, and classify terminal state (WORKING/WAITING/ASKING/BUSY); sidebar Orchestrator panel with batch send; `wctl.py` CLI for programmatic control of parallel Claude Code agents
+- **Mastermind orchestration** — HTTP API (`/api/orchestration/*`) to read terminal buffers, send keystrokes, and classify terminal state (WORKING/WAITING/ASKING/BUSY); sidebar Orchestrator panel with batch send, command history suggestions, and voice-to-text input; `wctl.py` CLI for programmatic control of parallel Claude Code agents
 - **Health check** — `GET /api/health` returns database, watchdog, and PTY service status with uptime
 - **Prometheus metrics** — `GET /api/metrics` exposes sessions_active, ws_connections, pty_bytes_read, uptime counters
 - **Structured logging** — JSON log format via `log_format: json` in config; includes user_id, session_id, IP context

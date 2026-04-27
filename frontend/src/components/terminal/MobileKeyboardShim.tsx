@@ -18,11 +18,16 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive }: Props) {
 
     const onInput = (evt: Event) => {
       const e = evt as InputEvent
-      if (e.data) {
+      const inputEl = evt.target as HTMLInputElement
+      if (e.inputType === 'insertFromPaste') {
+        // e.data can be null on iOS Safari for paste — read full value instead
+        const text = inputEl.value
+        if (text) terminal.paste(text)
+      } else if (e.data) {
         terminal.paste(e.data)
       }
-      // Clear the hidden input so repeated chars work
-      ;(evt.target as HTMLInputElement).value = ''
+      // Clear so repeated chars and subsequent pastes work
+      inputEl.value = ''
     }
 
     const onKeydown = (evt: KeyboardEvent) => {
