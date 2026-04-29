@@ -9,7 +9,8 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Native PTY sessions** — real OS processes on the host, not containers; full color, resize, Unicode
 - **Multi-tab support** — open the same session in multiple browser tabs simultaneously; all tabs share one PTY reader
 - **Self-registration** — anyone can create an account; username is an email address
-- **Flexible MFA** — choose Authenticator App (TOTP) or Email Code (OTP via SMTP) during setup; switch between methods at any time from the login verification screen ("Use email code instead" / "Use authenticator instead")
+- **Flexible MFA** — choose Authenticator App (TOTP), Email Code (OTP via SMTP), or Passkey (WebAuthn/FIDO2) during setup; switch between methods at any time from the login verification screen
+- **Passkey / WebAuthn** — FIDO2 hardware keys, Face ID, Touch ID, or any platform authenticator; challenge-response via `py-webauthn` + `@simplewebauthn/browser`; multiple keys per account; manage (add/rename/delete) from the settings panel; audit-logged
 - **Email OTP** — 6-digit codes sent via SMTP, bcrypt-hashed, 10-minute TTL, replay-protected; "Resend code" button on login
 - **Account recovery** — "Lost access to authenticator?" link on the TOTP login step emails a single-use reset link (15-minute TTL) that clears MFA and forces re-enrollment on next login; all resets written to audit log
 - **TOTP two-factor authentication** — authenticator-app code (Google Authenticator, Authy, 1Password); QR setup built into login flow
@@ -250,9 +251,28 @@ curl -X POST http://localhost:8000/api/auth/create-user \
 
 This endpoint is permanently disabled once any user exists.
 
-### 8. Set up the authenticator app
+### 8. Set up MFA
 
-On your first login, the app will automatically display a QR code — scan it with Google Authenticator, Authy, 1Password, or any TOTP app, then enter the 6-digit code to activate. Login is blocked until this step is complete. All subsequent logins require the code.
+On your first login, choose your preferred second factor:
+
+- **Authenticator App (TOTP)** — scan the QR code with Google Authenticator, Authy, 1Password, or any TOTP app; enter the 6-digit code to activate.
+- **Email Code** — a 6-digit code is sent to your account email each time you log in (requires SMTP configured).
+- **Passkey** — register a hardware security key (YubiKey, etc.), Face ID, or Touch ID; no codes to type.
+
+Login is blocked until MFA setup is complete. Additional passkeys can be added after login via the credential management panel.
+
+#### WebAuthn / Passkey configuration
+
+For passkeys to work, you must configure the WebAuthn Relying Party in `config.yml`:
+
+```yaml
+webauthn:
+  rp_id: your-machine.tail12345.ts.net   # Must match the hostname in the browser URL bar
+  rp_name: Nexus                          # Display name shown in the passkey prompt
+  # origin: https://your-machine.tail12345.ts.net  # Optional override; auto-derived if omitted
+```
+
+`rp_id` **must** be the exact hostname users access the app on (e.g. `ssowardm5.tail040188.ts.net`). If it doesn't match the browser's origin, WebAuthn registration and authentication will fail.
 
 ---
 
@@ -277,6 +297,11 @@ app:
 session:
   idle_timeout_seconds: 86400  # Auto-stop sessions idle longer than this
   jwt_expire_minutes: 1440    # JWT token lifetime (24 hours)
+
+webauthn:
+  rp_id: your-machine.tail12345.ts.net   # Relying Party ID — must match the browser hostname
+  rp_name: Nexus                          # Display name shown in platform authenticator prompts
+  # origin: https://your-machine.tail12345.ts.net  # Optional; auto-derived from request headers if omitted
 
 presets:                       # Commands available when creating a session
   - name: bash
@@ -355,6 +380,15 @@ All API routes are under `/api/`.
 | GET | `/api/auth/ws-token` | Cookie | Single-use 60-second WS token for a session |
 | POST | `/api/auth/setup-totp` | Cookie | Regenerate TOTP secret; returns QR code |
 | POST | `/api/auth/bootstrap-totp` | Form password | Legacy one-time TOTP setup |
+| **Passkey / WebAuthn** | | | |
+| POST | `/api/auth/passkey/setup/begin` | Form password | Begin first-time passkey registration (verifies credentials, returns `PublicKeyCredentialCreationOptions`) |
+| POST | `/api/auth/passkey/setup/complete` | Form password | Complete passkey registration; issues auth cookie on success |
+| POST | `/api/auth/passkey/authenticate/begin` | — | Return assertion options for a user with registered passkeys |
+| POST | `/api/auth/passkey/authenticate/complete` | — | Verify assertion; issues auth cookie on success |
+| POST | `/api/auth/passkey/register/begin` | Cookie | Begin adding an additional passkey to an authenticated account |
+| POST | `/api/auth/passkey/register/complete` | Cookie | Complete adding a new passkey (optionally name the credential) |
+| GET | `/api/auth/passkey/credentials` | Cookie | List all registered passkeys for the current user |
+| DELETE | `/api/auth/passkey/credentials/{id}` | Cookie | Remove a registered passkey; clears `mfa_method` if no keys remain |
 | **Sessions** | | | |
 | GET | `/api/sessions` | Cookie | List all sessions for the authenticated user |
 | POST | `/api/sessions` | Cookie | Create a new session (spawns PTY process) |
@@ -542,6 +576,18 @@ DB_PATH=~/.nexus/nexus.db alembic upgrade head
 
 **Email code "invalid" after resending** — When you click "Resend code", the previous code is invalidated. Always use the most recent email. If you retry the sign-in form without clicking resend, the original code stays valid.
 
+**Passkey login fails with "Passkey verification failed"** — The most common cause is `rp_id` mismatch. The value in `config.yml` under `webauthn.rp_id` must exactly match the hostname in the browser's address bar (e.g. `ssowardm5.tail040188.ts.net`). Update `config.yml` and restart the backend. If the credential was registered against a different hostname it cannot be reused — re-register.
+
+**Passkey login fails with "No pending challenge"** — The 120-second challenge window expired between `/begin` and `/complete`. Restart the passkey flow (the browser prompt will reappear automatically when you click "Use Passkey").
+
+**Passkey login fails with "No passkeys registered"** — The user account has `mfa_method = 'passkey'` but no rows in `passkey_credentials`. Reset the method:
+```bash
+sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL WHERE username = 'your-email@example.com';"
+```
+On next login you'll be prompted to choose a new MFA method.
+
+**Platform authenticator prompt never appears (macOS)** — Ensure you are accessing the app over HTTPS (not `http://localhost`). WebAuthn requires a secure context; plain HTTP is only allowed on `localhost` for development.
+
 **Lost authenticator app** — Re-run the bootstrap TOTP setup from the CLI:
 ```bash
 curl -X POST http://localhost:8000/api/auth/bootstrap-totp \
@@ -601,17 +647,19 @@ The TOTP Setup modal will then generate a fresh QR code without asking for the o
 
 ## Database Schema
 
-Managed by Alembic (6 migrations in `backend/alembic/versions/`).
+Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Credentials, encrypted TOTP secret (AES-GCM), `mfa_method` (totp/email_otp), lockout state, TOTP replay fields |
+| `users` | Credentials, encrypted TOTP secret (AES-GCM), `mfa_method` (totp/email_otp/passkey), lockout state, TOTP replay fields |
 | `sessions` | Session metadata: name, preset, status, cols/rows, workspace_id, timestamps |
 | `ws_tokens` | Single-use WS auth tokens with JTI + expiry |
 | `revoked_tokens` | Logout-revoked JWT JTIs; pruned when TTL expires |
 | `audit_log` | Append-only log of auth and session events |
 | `email_otp_codes` | Pending email OTP codes: bcrypt-hashed, 10-min TTL, single-use |
 | `account_recovery_tokens` | Single-use MFA reset tokens: SHA-256-hashed, 15-min TTL; consumed on use |
+| `passkey_credentials` | Registered WebAuthn/FIDO2 credentials: `credential_id BLOB`, `public_key BLOB`, `sign_count`, `transports`, `aaguid`, optional `name`; one row per passkey |
+| `webauthn_challenges` | Ephemeral challenge bytes (120-second TTL, single-use) used during passkey registration and authentication flows |
 | `workspaces` | Named, color-coded workspace groups for organizing sessions |
 | `pages` | Embedded HTTPS web pages (iframe tabs) |
 
@@ -622,12 +670,13 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 ### Authentication flow
 
 1. User registers with email + password via `/api/auth/create-user`
-2. User chooses MFA method (TOTP or Email OTP) via `/api/auth/setup-mfa`
+2. User chooses MFA method (TOTP, Email OTP, or Passkey) via `/api/auth/setup-mfa` or `/api/auth/passkey/setup/begin`
 3. On subsequent logins, POST email + password to `/api/auth/login`
-4. Server returns `{needs_totp: true}` or `{needs_email_otp: true}` based on configured method
-5. User can switch methods via "Use email code instead" / "Use authenticator instead" links
-6. On success, an httpOnly/Secure/SameSite=Strict JWT cookie is set
-7. WebSocket connections require a separate single-use token obtained via `/api/auth/ws-token`
+4. Server returns `{needs_totp: true}`, `{needs_email_otp: true}`, or `{needs_passkey: true}` based on configured method
+5. For passkey login: frontend calls `/passkey/authenticate/begin` → browser prompts platform/hardware authenticator → assertion POSTed to `/passkey/authenticate/complete`
+6. User can switch methods via "Use email code instead" / "Use authenticator instead" links
+7. On success, an httpOnly/Secure/SameSite=Strict JWT cookie is set
+8. WebSocket connections require a separate single-use token obtained via `/api/auth/ws-token`
 
 ### Hardening applied
 
@@ -652,6 +701,7 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 | TOTP re-setup | Replacing an existing TOTP secret requires the current valid code — prevents session-hijack lockout. The Setup Authenticator modal auto-attempts setup; the "enter current code" prompt only appears when a secret already exists (HTTP 403). |
 | Email OTP | 6-digit codes bcrypt-hashed in `email_otp_codes` table, 10-min TTL, single-use, previous codes invalidated on resend; `resend-otp` rate-limited at 3/min |
 | Account recovery | Recovery tokens SHA-256-hashed, 15-min TTL, single-use; previous tokens voided on new request; resets audit-logged; rate-limited 3/hour (request) and 5/hour (reset) per IP |
+| Passkey / WebAuthn | Challenges stored with 120-second TTL, single-use (atomically consumed); public keys stored as opaque BLOBs; sign counts validated on every assertion (clone detection); `rp_id` validated server-side against stored credential origin; `py-webauthn` verifies attestation and assertion; operations audit-logged (`PASSKEY_REGISTER`, `PASSKEY_AUTH_SUCCESS`, `PASSKEY_AUTH_FAILURE`, `PASSKEY_DELETE`) |
 | Self-registration | Open registration with email validation; duplicate emails return 409; rate-limited at 5/min; MFA setup mandatory before first session access |
 | Input validation | Session preset names validated at Pydantic level (alphanumeric, max 64 chars); error messages never echo raw user input |
 | DB permissions | Database directory created with `0o700` — other local users cannot read hashed passwords or encrypted TOTP secrets |
@@ -672,6 +722,8 @@ Managed by Alembic (6 migrations in `backend/alembic/versions/`).
 | JWT forgery | HS256 with ≥ 32-byte secret; PyJWT validates `exp`, `iat` |
 | WS session hijack | Single-use tokens bound to session ID; expire in 60 s; atomic consume prevents race-condition reuse |
 | TOTP lockout via hijacked session | Replacing TOTP secret requires entering current valid code |
+| Passkey cloning | Sign count validated on every assertion; counter going backwards triggers failure |
+| Passkey phishing | `rp_id` binds credentials to the exact hostname; the credential cannot be used on a different domain |
 | User enumeration via bootstrap-totp | All auth failures return identical 401 response |
 | CSRF | SameSite=Strict cookie; API accepts form POST only from same origin |
 | Clickjacking | `frame-ancestors 'none'` in CSP + `X-Frame-Options: DENY` |
@@ -792,11 +844,12 @@ nexus/
 │   │   │   ├── user.py
 │   │   │   └── workspace.py   # Workspace model (color-coded groups)
 │   │   ├── routers/
-│   │   │   ├── auth.py        # Login, registration, MFA setup/switch, TOTP, email OTP
+│   │   │   ├── auth.py        # Login, registration, MFA setup/switch, TOTP, email OTP, recovery
 │   │   │   ├── health.py      # GET /api/health
 │   │   │   ├── metrics.py     # GET /api/metrics (Prometheus format)
 │   │   │   ├── orchestration.py # Buffer, input, state classification
 │   │   │   ├── pages.py       # Embedded page CRUD
+│   │   │   ├── passkey.py     # WebAuthn/FIDO2: setup, authenticate, credential management
 │   │   │   ├── sessions.py    # Session CRUD + restart/resize
 │   │   │   ├── workspaces.py  # Workspace CRUD
 │   │   │   └── ws.py          # WebSocket PTY proxy
@@ -822,7 +875,8 @@ nexus/
 │           ├── 0004_workspaces.py
 │           ├── 0005_pages.py
 │           ├── 0006_email_otp.py
-│           └── 0007_account_recovery.py
+│           ├── 0007_account_recovery.py
+│           └── 0008_passkeys.py            # passkey_credentials + webauthn_challenges tables
 └── frontend/
     └── src/
         ├── api/               # axios client, auth.ts, sessions.ts, orchestration.ts, workspaces.ts, pages.ts
@@ -844,7 +898,8 @@ nexus/
 |-------|-----------|
 | Backend framework | FastAPI 0.111 |
 | Async database | aiosqlite 0.20 + Alembic 1.13 |
-| Auth | PyJWT 2.8 · bcrypt 4.2 · pyotp 2.9 |
+| Auth | PyJWT 2.8 · bcrypt 4.2 · pyotp 2.9 · py-webauthn 2.0 |
+| Passkey (browser) | @simplewebauthn/browser |
 | Encryption | cryptography 43 (AES-256-GCM) |
 | Rate limiting | slowapi 0.1.9 |
 | PTY | `os.openpty` + `subprocess.Popen` (stdlib) |

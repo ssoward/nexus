@@ -26,3 +26,7 @@ presets:
   - name: python
     command: ["python3"]
     description: Python 3 REPL
+
+webauthn:
+  rp_id: ssowardm5.tail040188.ts.net
+  rp_name: Nexus

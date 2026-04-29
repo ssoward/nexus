@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { login, register, setupMfa, resendOtp, switchMfa, requestRecovery } from '@/api/auth'
+import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
+import { login, register, setupMfa, resendOtp, switchMfa, requestRecovery, setupPasskeyBegin, setupPasskeyComplete, beginPasskeyAuthentication, completePasskeyAuthentication } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
 import type { User } from '@/types/auth'
 
@@ -11,6 +12,8 @@ type Step =
   | 'email_otp_setup'
   | 'totp'
   | 'email_otp'
+  | 'passkey'
+  | 'passkey_setup'
   | 'recovery_sent'
 
 export function LoginForm() {
@@ -39,6 +42,8 @@ export function LoginForm() {
         setStep('totp')
       } else if (res.needs_email_otp) {
         setStep('email_otp')
+      } else if (res.needs_passkey) {
+        setStep('passkey')
       } else if (res.ok) {
         setUser({ id: 0, username: res.username ?? email } as User)
         window.location.href = '/'
@@ -73,7 +78,11 @@ export function LoginForm() {
   }
 
   // ── MFA choice ─────────────────────────────────────────────────────
-  const handleMfaChoice = async (method: 'totp' | 'email_otp') => {
+  const handleMfaChoice = async (method: 'totp' | 'email_otp' | 'passkey') => {
+    if (method === 'passkey') {
+      setStep('passkey_setup')
+      return
+    }
     setLoading(true); setError('')
     try {
       const res = await setupMfa(email, password, method)
@@ -85,6 +94,43 @@ export function LoginForm() {
       }
     } catch {
       setError('Failed to set up MFA. Try again.')
+    } finally { setLoading(false) }
+  }
+
+  // ── Passkey setup (first-time MFA) ─────────────────────────────────
+  const handlePasskeySetup = async () => {
+    setLoading(true); setError('')
+    try {
+      const options = await setupPasskeyBegin(email, password)
+      const credential = await startRegistration({ optionsJSON: options })
+      const res = await setupPasskeyComplete(email, password, credential)
+      if (res.ok) {
+        setUser({ id: 0, username: res.username ?? email } as User)
+        window.location.href = '/'
+      }
+    } catch (err: unknown) {
+      const name = (err as { name?: string }).name
+      if (name === 'NotAllowedError') setError('Biometric cancelled or not allowed.')
+      else setError('Passkey setup failed. Try again.')
+    } finally { setLoading(false) }
+  }
+
+  // ── Passkey authentication (returning user) ────────────────────────
+  const handlePasskeyAuthentication = async () => {
+    setLoading(true); setError('')
+    try {
+      const options = await beginPasskeyAuthentication(email)
+      const credential = await startAuthentication({ optionsJSON: options })
+      const res = await completePasskeyAuthentication(email, credential)
+      if (res.ok) {
+        setUser({ id: 0, username: res.username ?? email } as User)
+        window.location.href = '/'
+      }
+    } catch (err: unknown) {
+      const status = (err as { response?: { status: number } }).response?.status
+      const name = (err as { name?: string }).name
+      if (name === 'NotAllowedError') setError('Biometric cancelled or not allowed.')
+      else setError(status === 429 ? 'Too many attempts. Wait a minute.' : 'Authentication failed. Try again.')
     } finally { setLoading(false) }
   }
 
@@ -275,6 +321,11 @@ export function LoginForm() {
               <span className="text-sm font-mono text-terminal-fg">Email Code</span>
               <p className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Receive a 6-digit code at {email || 'your email'}</p>
             </button>
+            <button onClick={() => handleMfaChoice('passkey')} disabled={loading}
+              className="w-full py-3 rounded border border-terminal-border hover:border-terminal-active text-left px-4 transition-colors">
+              <span className="text-sm font-mono text-terminal-fg">Passkey / Biometrics</span>
+              <p className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Use Face ID, Touch ID, or a hardware security key</p>
+            </button>
             {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
             {backButton()}
           </div>
@@ -349,6 +400,38 @@ export function LoginForm() {
             </button>
             {backButton()}
           </form>
+        )}
+
+        {/* ── Passkey authentication (returning user) ──────────────── */}
+        {step === 'passkey' && (
+          <div className="space-y-4">
+            <p className="text-xs font-mono text-terminal-fg/80">Biometric / Security Key</p>
+            <p className="text-xs font-mono text-terminal-fg/50">
+              Use your registered passkey to sign in.
+            </p>
+            {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
+            <button type="button" onClick={handlePasskeyAuthentication} disabled={loading}
+              className="w-full py-2 rounded bg-terminal-active text-white font-mono text-sm hover:bg-blue-600 disabled:opacity-50">
+              {loading ? 'Waiting for biometric...' : 'Use Passkey'}
+            </button>
+            {backButton()}
+          </div>
+        )}
+
+        {/* ── Passkey setup (first-time MFA) ───────────────────────── */}
+        {step === 'passkey_setup' && (
+          <div className="space-y-4">
+            <p className="text-xs font-mono text-terminal-fg/80">Set up Passkey</p>
+            <p className="text-xs font-mono text-terminal-fg/50">
+              Register a biometric or hardware security key for fast, secure sign-in.
+            </p>
+            {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
+            <button type="button" onClick={handlePasskeySetup} disabled={loading}
+              className="w-full py-2 rounded bg-terminal-active text-white font-mono text-sm hover:bg-blue-600 disabled:opacity-50">
+              {loading ? 'Setting up...' : 'Register Biometric / Security Key'}
+            </button>
+            {backButton('mfa_choice')}
+          </div>
         )}
 
         {/* ── Recovery sent ────────────────────────────────────────── */}

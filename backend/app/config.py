@@ -80,6 +80,11 @@ class Settings(BaseSettings):
     # TOTP config
     totp_issuer: str = "Nexus"
 
+    # WebAuthn / Passkey
+    rp_id: str = "localhost"
+    rp_name: str = "Nexus"
+    webauthn_origin: str = ""  # if set, overrides origin derived from request headers
+
     @field_validator("app_secret")
     @classmethod
     def app_secret_length(cls, v: str) -> str:
@@ -149,5 +154,12 @@ def get_settings() -> Settings:
             env_overrides["recovery_enabled"] = recovery["enabled"]
         if recovery.get("ttl_hours"):
             env_overrides["recovery_ttl_hours"] = recovery["ttl_hours"]
+        webauthn = yaml_config.get("webauthn", {})
+        if webauthn.get("rp_id"):
+            env_overrides["rp_id"] = webauthn["rp_id"]
+        if webauthn.get("rp_name"):
+            env_overrides["rp_name"] = webauthn["rp_name"]
+        if webauthn.get("origin"):
+            env_overrides["webauthn_origin"] = webauthn["origin"]
 
     return Settings(**env_overrides)

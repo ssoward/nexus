@@ -27,6 +27,9 @@ NEEDS_TOTP_SETUP = NEEDS_MFA_SETUP  # backward compat alias
 # Sentinel: password correct, email OTP sent, awaiting code
 NEEDS_EMAIL_OTP = "NEEDS_EMAIL_OTP"
 
+# Sentinel: password correct, passkey assertion required
+NEEDS_PASSKEY = "NEEDS_PASSKEY"
+
 
 async def _write_audit(
     user_id: Optional[int],
@@ -124,6 +127,11 @@ async def authenticate_user(
             "UPDATE users SET last_totp_code = ?, last_totp_at = ? WHERE id = ?",
             (totp_code, datetime.now(timezone.utc).isoformat(), user_id),
         )
+
+    # ── Passkey path ─────────────────────────────────────────────────────
+    elif mfa_method == "passkey":
+        # Passkey assertion is handled by /api/auth/passkey/authenticate/begin+complete
+        return NEEDS_PASSKEY
 
     # ── Email OTP path ───────────────────────────────────────────────────
     elif mfa_method == "email_otp":

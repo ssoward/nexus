@@ -22,7 +22,7 @@ from app.config import get_settings
 from app.crypto import init_crypto, hash_password
 from app.database import db
 from app.limiter import limiter
-from app.routers import auth as auth_router, sessions as sessions_router
+from app.routers import auth as auth_router, sessions as sessions_router, passkey as passkey_router
 
 # One-time crypto init — matches what app lifespan does
 _s = get_settings()
@@ -90,6 +90,28 @@ _SCHEMA = [
         expires_at  TEXT NOT NULL,
         used        INTEGER NOT NULL DEFAULT 0
     )""",
+    """CREATE TABLE IF NOT EXISTS passkey_credentials (
+        id            INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id       INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        credential_id BLOB NOT NULL UNIQUE,
+        public_key    BLOB NOT NULL,
+        sign_count    INTEGER NOT NULL DEFAULT 0,
+        transports    TEXT,
+        aaguid        TEXT,
+        name          TEXT,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        last_used_at  TEXT
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_passkey_user ON passkey_credentials(user_id)",
+    """CREATE TABLE IF NOT EXISTS webauthn_challenges (
+        id         INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id    INTEGER NOT NULL,
+        challenge  TEXT NOT NULL,
+        purpose    TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        used       INTEGER NOT NULL DEFAULT 0
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_challenge_user ON webauthn_challenges(user_id)",
 ]
 
 
@@ -101,6 +123,7 @@ def _make_app() -> FastAPI:
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
     app.include_router(auth_router.router)
     app.include_router(sessions_router.router)
+    app.include_router(passkey_router.router)
     return app
 
 

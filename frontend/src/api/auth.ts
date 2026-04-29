@@ -1,5 +1,6 @@
 import client from './client'
-import type { LoginResponse, TotpSetupResponse, MfaSetupResponse, RegisterResponse, User, WsTokenResponse } from '@/types/auth'
+import type { LoginResponse, TotpSetupResponse, MfaSetupResponse, RegisterResponse, User, WsTokenResponse, PasskeyCredential } from '@/types/auth'
+import type { PublicKeyCredentialCreationOptionsJSON, PublicKeyCredentialRequestOptionsJSON, RegistrationResponseJSON, AuthenticationResponseJSON } from '@simplewebauthn/browser'
 
 export async function login(
   username: string,
@@ -103,4 +104,52 @@ export async function getWsToken(sessionId: string): Promise<string> {
   form.append('session_id', sessionId)
   const res = await client.post<WsTokenResponse>('/auth/ws-token', form)
   return res.data.ws_token
+}
+
+export async function setupPasskeyBegin(
+  email: string,
+  password: string,
+): Promise<PublicKeyCredentialCreationOptionsJSON> {
+  const res = await client.post('/auth/passkey/setup/begin', { username: email, password })
+  return res.data
+}
+
+export async function setupPasskeyComplete(
+  email: string,
+  password: string,
+  credential: RegistrationResponseJSON,
+): Promise<LoginResponse> {
+  const res = await client.post<LoginResponse>('/auth/passkey/setup/complete', {
+    username: email,
+    password,
+    credential,
+  })
+  return res.data
+}
+
+export async function beginPasskeyAuthentication(
+  username: string,
+): Promise<PublicKeyCredentialRequestOptionsJSON> {
+  const res = await client.post('/auth/passkey/authenticate/begin', { username })
+  return res.data
+}
+
+export async function completePasskeyAuthentication(
+  username: string,
+  credential: AuthenticationResponseJSON,
+): Promise<LoginResponse> {
+  const res = await client.post<LoginResponse>('/auth/passkey/authenticate/complete', {
+    username,
+    credential,
+  })
+  return res.data
+}
+
+export async function listPasskeyCredentials(): Promise<PasskeyCredential[]> {
+  const res = await client.get<PasskeyCredential[]>('/auth/passkey/credentials')
+  return res.data
+}
+
+export async function deletePasskeyCredential(id: number): Promise<void> {
+  await client.delete(`/auth/passkey/credentials/${id}`)
 }

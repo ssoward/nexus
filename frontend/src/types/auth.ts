@@ -3,6 +3,8 @@ export interface User {
   username: string
   mfa_method?: string | null
   has_totp?: boolean
+  has_passkey?: boolean
+  passkey_count?: number
 }
 
 export interface LoginRequest {
@@ -17,6 +19,15 @@ export interface LoginResponse {
   needs_totp?: boolean
   needs_mfa_setup?: boolean
   needs_email_otp?: boolean
+  needs_passkey?: boolean
+}
+
+export interface PasskeyCredential {
+  id: number
+  name: string | null
+  aaguid: string | null
+  created_at: string
+  last_used_at: string | null
 }
 
 export interface TotpSetupResponse {

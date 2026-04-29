@@ -19,7 +19,7 @@ from app.database import db
 from app.limiter import limiter
 from app.logging_config import configure_logging
 from app.middleware.security_headers import SecurityHeadersMiddleware
-from app.routers import auth, sessions, ws, orchestration, health, metrics as metrics_router, workspaces, pages
+from app.routers import auth, sessions, ws, orchestration, health, metrics as metrics_router, workspaces, pages, passkey
 from app.services import pty_service, pty_broadcaster
 from app.services.process_watchdog import watch_processes
 from app.services.session_service import reset_running_sessions_on_startup
@@ -152,6 +152,7 @@ app.include_router(ws.router)
 app.include_router(orchestration.router)
 app.include_router(workspaces.router)
 app.include_router(pages.router)
+app.include_router(passkey.router)
 
 static_dir = os.getenv("STATIC_DIR", "")
 if static_dir and os.path.isdir(static_dir):

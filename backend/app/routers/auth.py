@@ -19,7 +19,7 @@ from app.crypto import encrypt_totp_secret, hash_password
 from app.database import db
 from app.dependencies import get_current_user
 from app.limiter import limiter
-from app.services.auth_service import authenticate_user, NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP
+from app.services.auth_service import authenticate_user, NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY
 from app.services.token_service import create_access_token, create_ws_token, decode_access_token
 
 logger = logging.getLogger(__name__)
@@ -61,6 +61,9 @@ async def login(
 
     if user == NEEDS_EMAIL_OTP:
         return {"ok": False, "needs_email_otp": True}
+
+    if user == NEEDS_PASSKEY:
+        return {"ok": False, "needs_passkey": True}
 
     if user is None:
         raise HTTPException(
@@ -231,11 +234,18 @@ async def me(current_user: dict = Depends(get_current_user)):
         "SELECT encrypted_totp_secret, mfa_method FROM users WHERE id = ?",
         (current_user["id"],),
     )
+    passkey_count_row = await db.fetchone(
+        "SELECT COUNT(*) AS n FROM passkey_credentials WHERE user_id = ?",
+        (current_user["id"],),
+    )
+    passkey_count = passkey_count_row["n"] if passkey_count_row else 0
     return {
         "id": current_user["id"],
         "username": current_user["username"],
         "mfa_method": row["mfa_method"] if row else None,
         "has_totp": bool(row and row["encrypted_totp_secret"]),
+        "has_passkey": passkey_count > 0,
+        "passkey_count": passkey_count,
     }
 
 
