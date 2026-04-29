@@ -148,8 +148,8 @@ async def setup_begin(request: Request, req: SetupBeginRequest):
         user_name=req.username,
         user_display_name=req.username,
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
         ),
     )
     await _store_challenge(row["id"], options.challenge, "register")
@@ -244,7 +244,7 @@ async def authenticate_begin(request: Request, req: AuthBeginRequest):
     options = webauthn.generate_authentication_options(
         rp_id=s.rp_id,
         allow_credentials=allow_credentials,
-        user_verification=UserVerificationRequirement.PREFERRED,
+        user_verification=UserVerificationRequirement.REQUIRED,
     )
     await _store_challenge(row["id"], options.challenge, "authenticate")
     return json.loads(webauthn.options_to_json(options))
@@ -341,8 +341,8 @@ async def register_begin(
         user_name=current_user["username"],
         user_display_name=current_user["username"],
         authenticator_selection=AuthenticatorSelectionCriteria(
-            resident_key=ResidentKeyRequirement.PREFERRED,
-            user_verification=UserVerificationRequirement.PREFERRED,
+            resident_key=ResidentKeyRequirement.REQUIRED,
+            user_verification=UserVerificationRequirement.REQUIRED,
         ),
     )
     await _store_challenge(current_user["id"], options.challenge, "register")
