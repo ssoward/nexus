@@ -8,15 +8,14 @@ export function RecoveryPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     const token = params.get('token')
-    const username = params.get('username')
 
-    if (!token || !username) {
+    if (!token) {
       setDetail('Invalid recovery link.')
       setStatus('error')
       return
     }
 
-    resetRecovery(username, token)
+    resetRecovery(token)
       .then(() => setStatus('success'))
       .catch(err => {
         const msg = (err as { response?: { data?: { detail?: string } } }).response?.data?.detail

@@ -30,3 +30,4 @@ presets:
 webauthn:
   rp_id: ssowardm5.tail040188.ts.net
   rp_name: Nexus
+  origin: https://ssowardm5.tail040188.ts.net

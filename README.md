@@ -25,7 +25,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Priority Queue layout** — 80/20 split: one session gets most of the viewport, others are thumbnails; auto-promotes the most recently active session when the primary goes idle; toggle between Grid and Priority modes in the header
 - **Mastermind orchestration** — HTTP API (`/api/orchestration/*`) to read terminal buffers, send keystrokes, and classify terminal state (WORKING/WAITING/ASKING/BUSY); sidebar Orchestrator panel with batch send, command history suggestions, and voice-to-text input; `wctl.py` CLI for programmatic control of parallel Claude Code agents
 - **Health check** — `GET /api/health` returns database, watchdog, and PTY service status with uptime
-- **Prometheus metrics** — `GET /api/metrics` exposes sessions_active, ws_connections, pty_bytes_read, uptime counters
+- **Prometheus metrics** — `GET /api/metrics` (authenticated) exposes sessions_active, ws_connections, pty_bytes_read, uptime counters
 - **Structured logging** — JSON log format via `log_format: json` in config; includes user_id, session_id, IP context
 - **Graceful shutdown** — ordered teardown: broadcast session_dead → close WebSockets → cancel watchdog → SIGTERM/SIGKILL PTYs → close DB
 - **Auto TLS renewal** — background task checks Tailscale cert age every 6h; renews and reloads Caddy when >60 days old
@@ -34,7 +34,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Workspace grouping** — named, color-coded workspace groups; sessions can be assigned to workspaces; CRUD via `/api/workspaces`
 - **Web page embedding** — embed HTTPS pages as sandboxed iframes in a split-view panel alongside terminals; CRUD via `/api/pages`
 - **Mastermind monitor** — `/mastermind` Claude Code slash command for autonomous multi-agent orchestration with CronCreate
-- **Secure by default** — httpOnly/Secure/SameSite=Strict cookies; strict CSP; HSTS; no Swagger/ReDoc in prod
+- **Secure by default** — httpOnly/Secure/SameSite=Strict cookies; strict CSP; HSTS with preload; no Swagger/ReDoc/OpenAPI schema in prod; WebAuthn user-verification enforced at both credential options and server-side verify
 - **Audit log** — every login, logout, WS connect/disconnect, and TOTP setup written to SQLite
 
 ---
@@ -267,12 +267,14 @@ For passkeys to work, you must configure the WebAuthn Relying Party in `config.y
 
 ```yaml
 webauthn:
-  rp_id: your-machine.tail12345.ts.net   # Must match the hostname in the browser URL bar
-  rp_name: Nexus                          # Display name shown in the passkey prompt
-  # origin: https://your-machine.tail12345.ts.net  # Optional override; auto-derived if omitted
+  rp_id: your-machine.tail12345.ts.net    # Must match the hostname in the browser URL bar
+  rp_name: Nexus                           # Display name shown in the passkey prompt
+  origin: https://your-machine.tail12345.ts.net  # Strongly recommended; server falls back to rp_id if omitted
 ```
 
 `rp_id` **must** be the exact hostname users access the app on (e.g. `ssowardm5.tail040188.ts.net`). If it doesn't match the browser's origin, WebAuthn registration and authentication will fail.
+
+Setting `origin` explicitly is strongly recommended. When omitted the server derives the expected origin from `rp_id`; the `origin` field lets you be precise about the scheme and port.
 
 ---
 
@@ -301,7 +303,7 @@ session:
 webauthn:
   rp_id: your-machine.tail12345.ts.net   # Relying Party ID — must match the browser hostname
   rp_name: Nexus                          # Display name shown in platform authenticator prompts
-  # origin: https://your-machine.tail12345.ts.net  # Optional; auto-derived from request headers if omitted
+  origin: https://your-machine.tail12345.ts.net   # Recommended; derived from rp_id if omitted (never from request headers)
 
 presets:                       # Commands available when creating a session
   - name: bash
@@ -413,7 +415,7 @@ All API routes are under `/api/`.
 | DELETE | `/api/pages/{id}` | Cookie | Delete page |
 | **Monitoring** | | | |
 | GET | `/api/health` | — | Database, watchdog, PTY service status + uptime |
-| GET | `/api/metrics` | — | Prometheus-format counters and gauges |
+| GET | `/api/metrics` | Cookie | Prometheus-format counters and gauges |
 
 ### WebSocket frames (JSON)
 
@@ -691,7 +693,7 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 | Sliding session | `POST /api/auth/refresh` re-issues the cookie; frontend calls it every 30 min so active tabs never hit the 24-hour hard TTL |
 | WS token security | Tokens are single-use (atomic `UPDATE...WHERE used=0` prevents race conditions), expire in 60 s, and are bound to a specific session ID |
 | TOTP replay protection | Successfully used codes are recorded (`last_totp_code` + `last_totp_at`); the same code is rejected for 90 s (the full `valid_window=1` window) |
-| Security headers | CSP (`frame-ancestors 'none'`, `connect-src 'self'`), HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy |
+| Security headers | CSP (`frame-ancestors 'none'`, `connect-src 'self'`), HSTS with `preload`, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, `Permissions-Policy: microphone=(self)` (allows voice input on same origin); OpenAPI schema endpoint disabled (`openapi_url=None`) |
 | Log sanitization | Caddy strips query strings from access logs (WS tokens are query params) |
 | Process cleanup | PTY kill sends SIGTERM then SIGKILL after 3 s in a background thread; zombie reap via `waitpid` |
 | Subscriber cap | Max 5 concurrent WebSocket viewers per session |
@@ -700,8 +702,8 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 | WebLinks filtering | xterm.js `WebLinksAddon` only opens `http://` or `https://` URLs |
 | TOTP re-setup | Replacing an existing TOTP secret requires the current valid code — prevents session-hijack lockout. The Setup Authenticator modal auto-attempts setup; the "enter current code" prompt only appears when a secret already exists (HTTP 403). |
 | Email OTP | 6-digit codes bcrypt-hashed in `email_otp_codes` table, 10-min TTL, single-use, previous codes invalidated on resend; `resend-otp` rate-limited at 3/min |
-| Account recovery | Recovery tokens SHA-256-hashed, 15-min TTL, single-use; previous tokens voided on new request; resets audit-logged; rate-limited 3/hour (request) and 5/hour (reset) per IP |
-| Passkey / WebAuthn | `userVerification=REQUIRED` and `residentKey=REQUIRED` enforce biometric/PIN on every registration and authentication; challenges stored with 120-second TTL, single-use (atomically consumed); public keys stored as opaque BLOBs; sign counts validated on every assertion (clone detection); `rp_id` validated server-side against stored credential origin; `py-webauthn` verifies attestation and assertion; operations audit-logged (`PASSKEY_REGISTER`, `PASSKEY_AUTH_SUCCESS`, `PASSKEY_AUTH_FAILURE`, `PASSKEY_DELETE`) |
+| Account recovery | Recovery tokens SHA-256-hashed, 15-min TTL, single-use; previous tokens voided on new request; resets audit-logged; rate-limited 3/hour (request) and 5/hour (reset) per IP; reset URL contains token only (no username in query string); reset endpoint resolves user from token, not from client-supplied username |
+| Passkey / WebAuthn | `userVerification=REQUIRED` and `residentKey=REQUIRED` in credential options; `require_user_verification=True` passed to `verify_registration_response()` and `verify_authentication_response()` — UV flag enforced at both the browser prompt and server-side verification; challenges stored with 120-second TTL, single-use (atomically consumed); public keys stored as opaque BLOBs; sign counts validated on every assertion (clone detection); `rp_id` validated server-side; `expected_origin` always derived from configured `rp_id` (never from request headers); `py-webauthn` verifies attestation and assertion; operations audit-logged (`PASSKEY_REGISTER`, `PASSKEY_AUTH_SUCCESS`, `PASSKEY_AUTH_FAILURE`, `PASSKEY_DELETE`) |
 | CORS | Explicit `CORSMiddleware` with `allow_origins=[]` — no cross-origin access permitted; credential-bearing cross-origin requests denied at the HTTP layer |
 | WS auth token | Single-use token passed via `Sec-WebSocket-Protocol` header (never in the URL); fallback to query param still accepted for backward-compat |
 | Absolute session timeout | `auth_time` claim set at login, propagated unchanged through every refresh; `get_current_user` dependency and the `/refresh` endpoint both reject tokens older than 24 hours even if `exp` hasn't fired |
@@ -739,16 +741,16 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 | CSRF | SameSite=Strict cookie; API accepts form POST only from same origin |
 | Clickjacking | `frame-ancestors 'none'` in CSP + `X-Frame-Options: DENY` |
 | XSS via terminal output | xterm.js renders ANSI escape sequences, not HTML; strict CSP blocks inline scripts |
-| Direct port 8000 exposure | Backend binds `0.0.0.0:8000` for Docker bridge; see firewall note in `start.sh` |
+| Direct port 8000 exposure | Backend binds `127.0.0.1:8000`; Caddy reaches it via `host.docker.internal`; port is not externally reachable by default |
 
 ### Pre-production checklist
 
 - [ ] Generate unique `APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT` — never reuse across installs
 - [ ] Confirm `.env` is in `.gitignore` and never committed
-- [ ] Access via Tailscale or VPN only — ensure port 8000 is firewalled from the internet
+- [ ] Access via Tailscale or VPN only — backend binds to `127.0.0.1:8000` (not externally reachable)
 - [ ] Provision a TLS cert (`tailscale cert`) and configure Caddy for HTTPS
 - [ ] Create your user account and set up the authenticator app
-- [ ] On Linux: add `ufw deny 8000` to block direct backend access (see note in `start.sh`)
+- [ ] On Linux: verify `127.0.0.1:8000` is not publicly routable (`ss -tlnp | grep 8000` should show `127.0.0.1`)
 - [ ] Rotate secrets every 90 days (requires re-encrypting TOTP secrets with new key)
 - [ ] Back up `~/.nexus/nexus.db` regularly (contains encrypted TOTP secrets and audit log)
 

@@ -46,14 +46,11 @@ def _set_auth_cookie(response: Response, token: str) -> None:
     )
 
 
-def _get_origin(request: Request) -> str:
+def _get_origin(request: Request) -> str:  # noqa: ARG001
     s = get_settings()
     if s.webauthn_origin:
         return s.webauthn_origin
-    forwarded_proto = request.headers.get("x-forwarded-proto")
-    scheme = forwarded_proto if forwarded_proto else request.url.scheme
-    host = request.headers.get("host", s.rp_id)
-    return f"{scheme}://{host}"
+    return f"https://{s.rp_id}"
 
 
 async def _store_challenge(user_id: int, challenge_bytes: bytes, purpose: str) -> None:
@@ -183,6 +180,7 @@ async def setup_complete(request: Request, response: Response, req: SetupComplet
             expected_challenge=expected_challenge,
             expected_rp_id=s.rp_id,
             expected_origin=_get_origin(request),
+            require_user_verification=True,
         )
     except Exception as exc:
         logger.warning("Passkey setup_complete failed for user %s: %s", row["id"], exc)
@@ -293,6 +291,7 @@ async def authenticate_complete(request: Request, response: Response, req: AuthC
             expected_origin=_get_origin(request),
             credential_public_key=bytes(cred_row["public_key"]),
             credential_current_sign_count=cred_row["sign_count"],
+            require_user_verification=True,
         )
     except Exception as exc:
         logger.warning("Passkey authenticate_complete failed for user %s: %s", row["id"], exc)
@@ -372,6 +371,7 @@ async def register_complete(
             expected_challenge=expected_challenge,
             expected_rp_id=s.rp_id,
             expected_origin=_get_origin(request),
+            require_user_verification=True,
         )
     except Exception as exc:
         logger.warning("Passkey register_complete failed for user %s: %s", current_user["id"], exc)

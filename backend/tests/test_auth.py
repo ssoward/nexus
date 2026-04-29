@@ -384,3 +384,86 @@ class TestCorsHeaders:
         )
         # Either 400 (no preflight handling) or missing allow-origin header
         assert "access-control-allow-origin" not in r.headers
+
+
+# ---------------------------------------------------------------------------
+# Account recovery flow
+# ---------------------------------------------------------------------------
+
+class TestRecovery:
+    """Security tests for the MFA recovery flow."""
+
+    async def test_recovery_request_does_not_enumerate_users(self, client: AsyncClient, setup_db):
+        """Unknown username must return identical 200 response as known username."""
+        r = await client.post("/api/auth/recovery/request", data={"username": "nonexistent@example.com"})
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+    async def test_recovery_reset_invalid_token_rejected(self, client: AsyncClient, setup_db):
+        """A random token that was never issued must be rejected."""
+        r = await client.post("/api/auth/recovery/reset", data={"token": "notavalidtoken"})
+        assert r.status_code == 400
+
+    async def test_recovery_reset_expired_token_rejected(self, client: AsyncClient, setup_db, test_user):
+        """An expired token must be rejected even if the hash matches."""
+        import hashlib
+        from datetime import datetime, timezone, timedelta
+
+        token = "expiredtoken123"
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expired_at = (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()
+        await setup_db.execute(
+            "INSERT INTO account_recovery_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+            (test_user["id"], token_hash, expired_at),
+        )
+        r = await client.post("/api/auth/recovery/reset", data={"token": token})
+        assert r.status_code == 400
+
+    async def test_recovery_reset_valid_token_clears_mfa(self, client: AsyncClient, setup_db, test_user):
+        """A valid, unexpired token must clear the user's MFA method."""
+        import hashlib
+        from datetime import datetime, timezone, timedelta
+
+        # Give the user a TOTP secret so we can verify it gets cleared
+        from app.crypto import encrypt_totp_secret
+        import pyotp
+        secret = pyotp.random_base32()
+        await setup_db.execute(
+            "UPDATE users SET encrypted_totp_secret = ?, mfa_method = 'totp' WHERE id = ?",
+            (encrypt_totp_secret(secret, test_user["id"]), test_user["id"]),
+        )
+
+        token = "validtoken456"
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        await setup_db.execute(
+            "INSERT INTO account_recovery_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+            (test_user["id"], token_hash, expires_at),
+        )
+
+        r = await client.post("/api/auth/recovery/reset", data={"token": token})
+        assert r.status_code == 200
+        assert r.json()["ok"] is True
+
+        row = await setup_db.fetchone("SELECT mfa_method, encrypted_totp_secret FROM users WHERE id = ?", (test_user["id"],))
+        assert row["mfa_method"] is None
+        assert row["encrypted_totp_secret"] is None
+
+    async def test_recovery_reset_token_cannot_be_reused(self, client: AsyncClient, setup_db, test_user):
+        """A token that has been used once must be rejected on a second attempt."""
+        import hashlib
+        from datetime import datetime, timezone, timedelta
+
+        token = "onetimetoken789"
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        expires_at = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        await setup_db.execute(
+            "INSERT INTO account_recovery_tokens (user_id, token_hash, expires_at) VALUES (?, ?, ?)",
+            (test_user["id"], token_hash, expires_at),
+        )
+
+        r1 = await client.post("/api/auth/recovery/reset", data={"token": token})
+        assert r1.status_code == 200
+
+        r2 = await client.post("/api/auth/recovery/reset", data={"token": token})
+        assert r2.status_code == 400

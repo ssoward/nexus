@@ -1,13 +1,14 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 
+from app.routers.auth import get_current_user
 from app.services import metrics
 
 router = APIRouter(tags=["metrics"])
 
 
 @router.get("/api/metrics", response_class=PlainTextResponse)
-async def prometheus_metrics():
+async def prometheus_metrics(_: dict = Depends(get_current_user)):
     lines = [
         f"# HELP nexus_sessions_created_total Total sessions created",
         f"# TYPE nexus_sessions_created_total counter",

@@ -19,7 +19,7 @@ export function EmbeddedPage({ url, name }: Props) {
       </div>
       <iframe
         src={url}
-        sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+        sandbox="allow-scripts allow-forms allow-popups"
         className="flex-1 w-full border-0 bg-white"
         title={name}
       />

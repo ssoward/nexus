@@ -536,9 +536,8 @@ async def request_recovery(
             (row["id"], token_hash, expires_at),
         )
 
-        scheme = request.headers.get("x-forwarded-proto", "https")
-        host = request.headers.get("host", "localhost")
-        recovery_url = f"{scheme}://{host}/recover?token={token}&username={username}"
+        base_url = f"https://{get_settings().rp_id}"
+        recovery_url = f"{base_url}/recover?token={token}"
 
         from app.services.email_service import send_recovery_email
         try:
@@ -553,19 +552,14 @@ async def request_recovery(
 @limiter.limit("5/hour")
 async def reset_recovery(
     request: Request,
-    username: str = Form(...),
     token: str = Form(...),
 ):
     """Consume a recovery token and clear the user's MFA, forcing re-enrollment on next login."""
-    row = await db.fetchone("SELECT id FROM users WHERE username = ?", (username,))
-    if not row:
-        raise HTTPException(status_code=400, detail="Invalid or expired recovery link.")
-
     token_hash = hashlib.sha256(token.encode()).hexdigest()
     token_row = await db.fetchone(
-        "SELECT id, expires_at FROM account_recovery_tokens "
-        "WHERE user_id = ? AND token_hash = ? AND used = 0",
-        (row["id"], token_hash),
+        "SELECT id, user_id, expires_at FROM account_recovery_tokens "
+        "WHERE token_hash = ? AND used = 0",
+        (token_hash,),
     )
     if not token_row:
         raise HTTPException(status_code=400, detail="Invalid or expired recovery link.")
@@ -576,17 +570,18 @@ async def reset_recovery(
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="Recovery link has expired.")
 
+    user_id = token_row["user_id"]
     await db.execute(
         "UPDATE account_recovery_tokens SET used = 1 WHERE id = ?",
         (token_row["id"],),
     )
     await db.execute(
         "UPDATE users SET encrypted_totp_secret = NULL, mfa_method = NULL WHERE id = ?",
-        (row["id"],),
+        (user_id,),
     )
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (row["id"], "MFA_RESET_VIA_RECOVERY", request.client.host if request.client else "unknown"),
+        (user_id, "MFA_RESET_VIA_RECOVERY", request.client.host if request.client else "unknown"),
     )
 
     return {"ok": True}

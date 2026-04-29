@@ -112,6 +112,15 @@ _SCHEMA = [
         used       INTEGER NOT NULL DEFAULT 0
     )""",
     "CREATE INDEX IF NOT EXISTS idx_challenge_user ON webauthn_challenges(user_id)",
+    """CREATE TABLE IF NOT EXISTS account_recovery_tokens (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        token_hash  TEXT NOT NULL,
+        expires_at  TEXT NOT NULL,
+        used        INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_recovery_user ON account_recovery_tokens(user_id)",
 ]
 
 

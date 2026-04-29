@@ -87,9 +87,8 @@ export async function requestRecovery(username: string): Promise<{ ok: boolean; 
   return res.data as { ok: boolean; message: string }
 }
 
-export async function resetRecovery(username: string, token: string): Promise<{ ok: boolean }> {
+export async function resetRecovery(token: string): Promise<{ ok: boolean }> {
   const form = new FormData()
-  form.append('username', username)
   form.append('token', token)
   const res = await client.post('/auth/recovery/reset', form)
   return res.data as { ok: boolean }
