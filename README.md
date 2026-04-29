@@ -702,6 +702,14 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 | Email OTP | 6-digit codes bcrypt-hashed in `email_otp_codes` table, 10-min TTL, single-use, previous codes invalidated on resend; `resend-otp` rate-limited at 3/min |
 | Account recovery | Recovery tokens SHA-256-hashed, 15-min TTL, single-use; previous tokens voided on new request; resets audit-logged; rate-limited 3/hour (request) and 5/hour (reset) per IP |
 | Passkey / WebAuthn | Challenges stored with 120-second TTL, single-use (atomically consumed); public keys stored as opaque BLOBs; sign counts validated on every assertion (clone detection); `rp_id` validated server-side against stored credential origin; `py-webauthn` verifies attestation and assertion; operations audit-logged (`PASSKEY_REGISTER`, `PASSKEY_AUTH_SUCCESS`, `PASSKEY_AUTH_FAILURE`, `PASSKEY_DELETE`) |
+| CORS | Explicit `CORSMiddleware` with `allow_origins=[]` — no cross-origin access permitted; credential-bearing cross-origin requests denied at the HTTP layer |
+| WS auth token | Single-use token passed via `Sec-WebSocket-Protocol` header (never in the URL); fallback to query param still accepted for backward-compat |
+| Absolute session timeout | `auth_time` claim set at login, propagated unchanged through every refresh; `get_current_user` dependency and the `/refresh` endpoint both reject tokens older than 24 hours even if `exp` hasn't fired |
+| Error response headers | Global exception handler injects `X-Content-Type-Options: nosniff` and `X-Frame-Options: DENY` on unhandled 500 responses that bypass middleware |
+| DB lock timeout | SQLite `busy_timeout` set to 30 s (up from 5 s) to avoid spurious write failures under concurrent load |
+| Timing attack (verify_password) | `bcrypt.checkpw` result wrapped in `hmac.compare_digest` to eliminate application-layer boolean timing discrepancy |
+| Update input validation | `WorkspaceUpdate` and `PageUpdate` Pydantic models carry the same field validators as their `*Create` counterparts (name length, hex color, HTTPS URL) |
+| Recovery file permissions | `recovery.json` is written with `chmod 0o600` — readable only by the server process owner |
 | Self-registration | Open registration with email validation; duplicate emails return 409; rate-limited at 5/min; MFA setup mandatory before first session access |
 | Input validation | Session preset names validated at Pydantic level (alphanumeric, max 64 chars); error messages never echo raw user input |
 | DB permissions | Database directory created with `0o700` — other local users cannot read hashed passwords or encrypted TOTP secrets |
@@ -724,6 +732,9 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 | TOTP lockout via hijacked session | Replacing TOTP secret requires entering current valid code |
 | Passkey cloning | Sign count validated on every assertion; counter going backwards triggers failure |
 | Passkey phishing | `rp_id` binds credentials to the exact hostname; the credential cannot be used on a different domain |
+| Cross-origin API access | `CORSMiddleware` with empty `allow_origins` blocks all cross-origin requests; `SameSite=Strict` cookie provides second layer |
+| WS token exposure in URL | Single-use token delivered via `Sec-WebSocket-Protocol` header; never appears in browser history, Referrer headers, or proxy access logs |
+| Long-lived stolen token | Absolute 24-hour session ceiling enforced at both `/refresh` and `get_current_user`; stealing a token grants at most 24 h from original login |
 | User enumeration via bootstrap-totp | All auth failures return identical 401 response |
 | CSRF | SameSite=Strict cookie; API accepts form POST only from same origin |
 | Clickjacking | `frame-ancestors 'none'` in CSP + `X-Frame-Options: DENY` |

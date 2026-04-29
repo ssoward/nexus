@@ -26,6 +26,7 @@ def save_recovery() -> None:
     os.makedirs(RECOVERY_DIR, exist_ok=True)
     with open(RECOVERY_FILE, "w") as f:
         json.dump(data, f)
+    os.chmod(RECOVERY_FILE, 0o600)  # MED-3: contain session IDs to owner only
     logger.info("Recovery data saved for %d sessions", len(data["sessions"]))
 
 

@@ -62,7 +62,19 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
     if not _UUID_RE.match(session_id):
         await websocket.close(code=4400, reason="Invalid session ID")
         return
-    token = websocket.query_params.get("token", "")
+
+    # HIGH-3: Extract the auth token from the Sec-WebSocket-Protocol header so
+    # it never appears in the URL (browser history, proxy logs, Referrer headers).
+    # The browser sends `Sec-WebSocket-Protocol: nexus-auth, <token>` when the
+    # frontend passes `new WebSocket(url, ['nexus-auth', token])`.
+    token = ""
+    subprotocol_header = websocket.headers.get("sec-websocket-protocol", "")
+    if subprotocol_header.startswith("nexus-auth, "):
+        token = subprotocol_header.split(", ", 1)[1]
+    else:
+        # Fallback: accept query param for backward-compat during transition
+        token = websocket.query_params.get("token", "")
+
     user_id = await _validate_ws_token(token, session_id)
     if user_id is None:
         await websocket.close(code=4401, reason="Unauthorized")
@@ -100,7 +112,9 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
         await websocket.close(code=4410, reason="Session process not attached — restart it")
         return
 
-    await websocket.accept()
+    # Echo `nexus-auth` subprotocol so the browser doesn't reject the handshake
+    accept_subprotocol = "nexus-auth" if subprotocol_header.startswith("nexus-auth, ") else None
+    await websocket.accept(subprotocol=accept_subprotocol)
     _active_websockets.add(websocket)
     metrics.ws_connections_total.inc()
     metrics.ws_connections_active.inc()

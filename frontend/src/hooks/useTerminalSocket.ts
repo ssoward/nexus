@@ -46,10 +46,12 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
         throw err
       }
       const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-      let url = `${protocol}://${window.location.host}/ws/session/${sessionId}?token=${token}`
-      if (replay) url += '&replay=1'
+      // HIGH-3: pass the auth token as a Sec-WebSocket-Protocol subprotocol so
+      // it never appears in the URL (browser history, proxy logs, Referrer headers).
+      let url = `${protocol}://${window.location.host}/ws/session/${sessionId}`
+      if (replay) url += '?replay=1'
       replayRef.current = replay
-      const ws = new WebSocket(url)
+      const ws = new WebSocket(url, ['nexus-auth', token])
       wsRef.current = ws
 
       ws.onopen = () => {

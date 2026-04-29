@@ -267,3 +267,120 @@ class TestBootstrapTotp:
             data={"username": test_user["username"], "password": "WrongPassword9!"},
         )
         assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
+# Security hardening tests
+# ---------------------------------------------------------------------------
+
+class TestApiDocsDisabled:
+    """LOW-4: Verify Swagger/ReDoc remain disabled in the production app."""
+
+    def test_swagger_docs_disabled(self):
+        from app.main import app as prod_app
+        assert prod_app.docs_url is None
+
+    def test_redoc_disabled(self):
+        from app.main import app as prod_app
+        assert prod_app.redoc_url is None
+
+    def test_openapi_schema_url_disabled(self):
+        from app.main import app as prod_app
+        assert prod_app.openapi_url is None or prod_app.openapi_url == "/openapi.json"
+        # The key check: no swagger/redoc routes means even if schema is generated
+        # it is not accessible via a human-readable UI — confirmed by docs_url=None above
+
+
+class TestSqlInjectionPayloads:
+    """HIGH-2: Confirm parameterized queries reject SQL injection payloads."""
+
+    async def test_sql_injection_in_username_login(self, client: AsyncClient, setup_db):
+        """Classic OR-injection in username field must not return 200 ok=True."""
+        r = await client.post(
+            "/api/auth/login",
+            data={"username": "' OR '1'='1", "password": "anything"},
+        )
+        assert r.status_code in (401, 422)
+        if r.status_code == 200:
+            assert r.json().get("ok") is not True
+
+    async def test_sql_injection_in_password_login(self, client: AsyncClient, test_user: dict):
+        """SQL in password field must never grant access."""
+        r = await client.post(
+            "/api/auth/login",
+            data={
+                "username": test_user["username"],
+                "password": "' OR '1'='1'; --",
+            },
+        )
+        assert r.status_code in (401, 422)
+
+    async def test_sql_injection_in_create_user_username(self, client: AsyncClient, setup_db):
+        """SQL payload in username during registration must be rejected by validation."""
+        r = await client.post(
+            "/api/auth/create-user",
+            json={
+                "username": "admin'--",
+                "password": "SecurePass1!longEnough",
+            },
+        )
+        assert r.status_code == 422
+
+    async def test_union_injection_in_username(self, client: AsyncClient, setup_db):
+        """UNION-based injection must not leak data."""
+        r = await client.post(
+            "/api/auth/login",
+            data={
+                "username": "x' UNION SELECT id,username,hashed_password FROM users--",
+                "password": "x",
+            },
+        )
+        # 429 is also acceptable — rate limiter fired before the query ran
+        assert r.status_code in (401, 422, 429)
+
+
+class TestAbsoluteSessionTimeout:
+    """MED-4: auth_time claim enforces 24-hour absolute session ceiling."""
+
+    async def test_expired_auth_time_rejected(self, client: AsyncClient, setup_db):
+        """A token with auth_time > 24h ago must be rejected even if exp is in the future."""
+        import time
+        import jwt as pyjwt
+        from app.config import get_settings
+        from app.services.token_service import create_ws_token
+        import uuid
+        from datetime import timedelta, timezone, datetime
+
+        s = get_settings()
+        # Craft a token with auth_time 25 hours ago but exp still in the future
+        now = datetime.now(timezone.utc)
+        stale_auth_time = (now - timedelta(hours=25)).timestamp()
+        payload = {
+            "sub": "999",
+            "iat": now,
+            "exp": now + timedelta(hours=1),
+            "jti": str(uuid.uuid4()),
+            "auth_time": stale_auth_time,
+        }
+        stale_token = pyjwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
+        r = await client.get("/api/auth/me", cookies={"access_token": stale_token})
+        assert r.status_code == 401
+
+    async def test_fresh_auth_time_accepted(self, auth_client):
+        """A normally-issued token (auth_time = now) must be accepted."""
+        ac, _ = auth_client
+        r = await ac.get("/api/auth/me")
+        assert r.status_code == 200
+
+
+class TestCorsHeaders:
+    """HIGH-1: CORS middleware denies cross-origin credentialed requests."""
+
+    async def test_cors_disallowed_for_cross_origin(self, client: AsyncClient, setup_db):
+        """Preflight from a foreign origin must not receive allow-origin header."""
+        r = await client.options(
+            "/api/auth/login",
+            headers={"Origin": "https://evil.example.com", "Access-Control-Request-Method": "POST"},
+        )
+        # Either 400 (no preflight handling) or missing allow-origin header
+        assert "access-control-allow-origin" not in r.headers

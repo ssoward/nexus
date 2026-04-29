@@ -15,7 +15,7 @@ class AsyncDatabase:
         await self._conn.execute("PRAGMA journal_mode = WAL")
         await self._conn.execute("PRAGMA synchronous = NORMAL")
         await self._conn.execute("PRAGMA foreign_keys = ON")
-        await self._conn.execute("PRAGMA busy_timeout = 5000")
+        await self._conn.execute("PRAGMA busy_timeout = 30000")  # LOW-3: 30s under load
         await self._conn.commit()
 
     async def close(self) -> None:

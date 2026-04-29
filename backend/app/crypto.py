@@ -1,5 +1,6 @@
 import base64
 import hashlib
+import hmac
 import os
 
 import bcrypt
@@ -54,7 +55,14 @@ def hash_password(password: str) -> str:
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(_pw_digest(plain), hashed.encode())
+    # bcrypt.checkpw is constant-time for the hash comparison; the extra
+    # hmac.compare_digest call ensures the boolean result itself doesn't
+    # leak timing information at the application layer (MED-1).
+    try:
+        result = bcrypt.checkpw(_pw_digest(plain), hashed.encode())
+        return hmac.compare_digest(str(result), "True")
+    except Exception:
+        return False
 
 
 def generate_secret_hex(nbytes: int = 32) -> str:

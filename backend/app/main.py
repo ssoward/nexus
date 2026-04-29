@@ -7,6 +7,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
@@ -137,6 +138,27 @@ app = FastAPI(
     redoc_url=None,
     lifespan=lifespan,
 )
+
+# HIGH-1: Explicit CORS policy — deny all cross-origin credentialed requests.
+# The app is same-origin (Caddy serves frontend + proxies /api from same host),
+# so legitimate requests never need cross-origin access.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[],        # no cross-origin origins allowed
+    allow_credentials=False,
+    allow_methods=["GET", "POST", "DELETE", "PATCH"],
+    allow_headers=["*"],
+)
+
+# LOW-2: Global exception handler — ensure security headers appear even on
+# unhandled 500 responses that bypass the SecurityHeadersMiddleware.
+@app.exception_handler(Exception)
+async def _global_exception_handler(request: Request, exc: Exception):
+    logger.exception("Unhandled exception: %s", exc)
+    resp = JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["X-Frame-Options"] = "DENY"
+    return resp
 
 # Rate limiter state must be set before adding middleware
 app.state.limiter = limiter

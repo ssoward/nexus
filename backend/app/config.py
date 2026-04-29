@@ -21,6 +21,8 @@ def _validate_no_secret_keys(obj: Any, path: str = "") -> None:
 
 
 def _load_yaml_config(path: str) -> dict:
+    if not path:
+        return {}
     config_path = Path(path)
     if not config_path.exists():
         return {}
