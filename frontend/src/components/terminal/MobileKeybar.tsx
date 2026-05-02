@@ -34,6 +34,7 @@ const KEYS: KeyDef[] = [
 interface Props {
   terminal: Terminal | null
   isVisible: boolean
+  sendInput: (data: string) => void
 }
 
 /**
@@ -41,7 +42,8 @@ interface Props {
  * physical keyboard.  Uses onPointerDown + e.preventDefault() so the button
  * never steals focus away from the hidden keyboard-guard input.
  */
-export function MobileKeybar({ terminal, isVisible }: Props) {
+export function MobileKeybar({ terminal, isVisible, sendInput }: Props) {
+  // Voice transcripts are genuine paste content — terminal.paste() is correct here
   const handleTranscript = useCallback(
     (text: string) => terminal?.paste(text),
     [terminal]
@@ -52,7 +54,8 @@ export function MobileKeybar({ terminal, isVisible }: Props) {
 
   const send = (e: React.PointerEvent, seq: string) => {
     e.preventDefault() // keep focus on the hidden <input> — do NOT steal it
-    terminal?.paste(seq)
+    // Use sendInput directly to bypass bracketedPaste wrapping for control sequences
+    sendInput(seq)
   }
 
   const handlePaste = async (e: React.PointerEvent) => {

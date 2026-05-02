@@ -5,13 +5,20 @@ interface Props {
   terminal: Terminal | null
   inputRef: RefObject<HTMLInputElement | null>
   isActive: boolean
+  sendInput: (data: string) => void
 }
 
 /**
  * Forwards events from a hidden <input> (which triggers the OS soft keyboard)
  * to the xterm.js Terminal instance.
+ *
+ * IMPORTANT: special keys (Enter, arrows, Ctrl sequences) use sendInput() directly
+ * rather than terminal.paste() to bypass bracketed-paste wrapping. When an app
+ * like Claude Code enables bracketedPasteMode, terminal.paste('\r') sends
+ * \x1b[200~\r\x1b[201~ which readline interprets as a literal newline in a paste
+ * buffer, not a command submission.
  */
-export function MobileKeyboardShim({ terminal, inputRef, isActive }: Props) {
+export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput }: Props) {
   useEffect(() => {
     const input = inputRef.current
     if (!input || !terminal) return
@@ -20,18 +27,22 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive }: Props) {
       const e = evt as InputEvent
       const inputEl = evt.target as HTMLInputElement
       if (e.inputType === 'insertFromPaste') {
-        // e.data can be null on iOS Safari for paste — read full value instead
+        // e.data can be null on iOS Safari for paste — read full value instead.
+        // Actual paste content goes through terminal.paste() so bracketedPaste
+        // wrapping is applied correctly for apps that handle it.
         const text = inputEl.value
         if (text) terminal.paste(text)
       } else if (e.data) {
-        terminal.paste(e.data)
+        // Regular typed characters — send directly to bypass paste wrapping
+        sendInput(e.data)
       }
       // Clear so repeated chars and subsequent pastes work
       inputEl.value = ''
     }
 
     const onKeydown = (evt: KeyboardEvent) => {
-      // Forward special keys that InputEvent doesn't capture
+      // Forward special keys that InputEvent doesn't capture.
+      // Use sendInput (not terminal.paste) to avoid bracketedPaste wrapping.
       const specialKeys: Record<string, string> = {
         Enter: '\r',
         Backspace: '\x7f',
@@ -45,11 +56,11 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive }: Props) {
       const mapped = specialKeys[evt.key]
       if (mapped) {
         evt.preventDefault()
-        terminal.paste(mapped)
+        sendInput(mapped)
       } else if (evt.ctrlKey && evt.key.length === 1) {
         const code = evt.key.charCodeAt(0) - 96
         if (code > 0 && code < 27) {
-          terminal.paste(String.fromCharCode(code))
+          sendInput(String.fromCharCode(code))
           evt.preventDefault()
         }
       }
@@ -61,7 +72,7 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive }: Props) {
       input.removeEventListener('input', onInput)
       input.removeEventListener('keydown', onKeydown)
     }
-  }, [terminal, inputRef, isActive])
+  }, [terminal, inputRef, isActive, sendInput])
 
   return null
 }

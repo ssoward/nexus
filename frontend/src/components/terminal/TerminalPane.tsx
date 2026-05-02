@@ -175,7 +175,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       </div>
 
       {/* Mobile shortcut key strip — only rendered on touch devices for the active pane */}
-      <MobileKeybar terminal={terminal} isVisible={isMobile && isActive} />
+      <MobileKeybar terminal={terminal} isVisible={isMobile && isActive} sendInput={sendInput} />
 
       {/* Terminal area */}
       <div ref={containerRef} className="flex-1 min-h-0 p-1" />
@@ -199,6 +199,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
         terminal={terminal}
         inputRef={hiddenInputRef}
         isActive={isActive}
+        sendInput={sendInput}
       />
     </div>
   )
