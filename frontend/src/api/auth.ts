@@ -153,6 +153,35 @@ export async function deletePasskeyCredential(id: number): Promise<void> {
   await client.delete(`/auth/passkey/credentials/${id}`)
 }
 
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await client.post('/auth/change-password', { current_password: currentPassword, new_password: newPassword })
+}
+
+export async function changeEmail(currentPassword: string, newEmail: string): Promise<{ ok: boolean; username: string }> {
+  const res = await client.patch<{ ok: boolean; username: string }>('/auth/change-email', {
+    current_password: currentPassword,
+    new_email: newEmail,
+  })
+  return res.data
+}
+
+export async function deleteAccount(password: string): Promise<void> {
+  await client.delete('/auth/account', { data: { password } })
+}
+
+export async function registerPasskeyBegin(): Promise<PublicKeyCredentialCreationOptionsJSON> {
+  const res = await client.post<PublicKeyCredentialCreationOptionsJSON>('/auth/passkey/register/begin')
+  return res.data
+}
+
+export async function registerPasskeyComplete(
+  credential: RegistrationResponseJSON,
+  name?: string,
+): Promise<{ ok: boolean }> {
+  const res = await client.post<{ ok: boolean }>('/auth/passkey/register/complete', { credential, name: name ?? '' })
+  return res.data
+}
+
 export async function beginPasswordlessAuth(): Promise<PublicKeyCredentialRequestOptionsJSON & { challenge_token: string }> {
   const res = await client.post<PublicKeyCredentialRequestOptionsJSON & { challenge_token: string }>('/auth/passkey/login/begin')
   return res.data

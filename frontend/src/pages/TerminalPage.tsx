@@ -4,6 +4,7 @@ import { PriorityLayout } from '@/components/terminal/PriorityLayout'
 import { SessionList } from '@/components/ui/SessionList'
 import { OrchestratorPanel } from '@/components/ui/OrchestratorPanel'
 import { PageList } from '@/components/ui/PageList'
+import { SettingsPanel } from '@/components/ui/SettingsPanel'
 import { EmbeddedPage } from '@/components/ui/EmbeddedPage'
 import { TotpSetupModal } from '@/components/auth/TotpSetupModal'
 import { HelpModal } from '@/components/ui/HelpModal'
@@ -20,7 +21,7 @@ export function TerminalPage() {
   const isMobile = useIsMobile()
   const { layoutMode, setLayoutMode, autoPromote, setAutoPromote } = useSessionStore()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
-  const [sidebarTab, setSidebarTab] = useState<'sessions' | 'orchestrator' | 'pages'>('sessions')
+  const [sidebarTab, setSidebarTab] = useState<'sessions' | 'orchestrator' | 'pages' | 'settings'>('sessions')
   const [showTotpSetup, setShowTotpSetup] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
   const [activePage, setActivePage] = useState<EmbeddedPageType | null>(null)
@@ -85,7 +86,7 @@ export function TerminalPage() {
             onClick={() => setSidebarTab('orchestrator')}
             className={`flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'orchestrator' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
-            Orchestrator
+            Orch
           </button>
           <button
             onClick={() => setSidebarTab('pages')}
@@ -93,10 +94,17 @@ export function TerminalPage() {
           >
             Pages
           </button>
+          <button
+            onClick={() => setSidebarTab('settings')}
+            className={`flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'settings' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+          >
+            Settings
+          </button>
         </div>
         {sidebarTab === 'sessions' && <SessionList onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
         {sidebarTab === 'orchestrator' && <OrchestratorPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
         {sidebarTab === 'pages' && <PageList onClose={isMobile ? () => setSidebarOpen(false) : undefined} onSelectPage={setActivePage} activePage={activePage} />}
+        {sidebarTab === 'settings' && <SettingsPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
       </div>
 
       {/* ── Main area ── */}

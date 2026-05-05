@@ -585,3 +585,148 @@ async def reset_recovery(
     )
 
     return {"ok": True}
+
+
+# ── Change password (authenticated) ──────────────────────────────────────────
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("new_password")
+    @classmethod
+    def password_complexity(cls, v: str) -> str:
+        if len(v) < 16:
+            raise ValueError("Password must be at least 16 characters")
+        if not re.search(r"[A-Z]", v):
+            raise ValueError("Password must contain at least one uppercase letter")
+        if not re.search(r"[a-z]", v):
+            raise ValueError("Password must contain at least one lowercase letter")
+        if not re.search(r"\d", v):
+            raise ValueError("Password must contain at least one digit")
+        if not re.search(r"[^A-Za-z0-9]", v):
+            raise ValueError("Password must contain at least one special character")
+        return v
+
+
+@router.post("/change-password")
+@limiter.limit("5/minute")
+async def change_password(
+    request: Request,
+    response: Response,
+    req: ChangePasswordRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    row = await db.fetchone(
+        "SELECT hashed_password FROM users WHERE id = ?", (current_user["id"],)
+    )
+    from app.crypto import verify_password as vp
+    if not row or not vp(req.current_password, row["hashed_password"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
+
+    new_hash = hash_password(req.new_password)
+    await db.execute("UPDATE users SET hashed_password = ? WHERE id = ?", (new_hash, current_user["id"]))
+
+    # Revoke the current token so the old password can't be reused via cached JWT
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        payload = decode_access_token(token)
+        if payload:
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
+                await db.execute(
+                    "INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)",
+                    (jti, current_user["id"], expires_at),
+                )
+
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (current_user["id"], "PASSWORD_CHANGED", request.client.host if request.client else None),
+    )
+    new_token = create_access_token(current_user["id"])
+    _set_auth_cookie(response, new_token)
+    return {"ok": True}
+
+
+# ── Change email (authenticated) ──────────────────────────────────────────────
+
+class ChangeEmailRequest(BaseModel):
+    current_password: str
+    new_email: str
+
+    @field_validator("new_email")
+    @classmethod
+    def email_valid(cls, v: str) -> str:
+        v = v.strip().lower()
+        if len(v) < 5 or len(v) > 254:
+            raise ValueError("Email must be 5-254 characters")
+        if not re.match(
+            r"^[a-zA-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9-]+(?:\.[a-zA-Z0-9-]+)+$", v
+        ):
+            raise ValueError("Must be a valid email address")
+        return v
+
+
+@router.patch("/change-email")
+@limiter.limit("5/minute")
+async def change_email(
+    request: Request,
+    req: ChangeEmailRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    row = await db.fetchone(
+        "SELECT hashed_password FROM users WHERE id = ?", (current_user["id"],)
+    )
+    from app.crypto import verify_password as vp
+    if not row or not vp(req.current_password, row["hashed_password"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password is incorrect")
+
+    existing = await db.fetchone("SELECT id FROM users WHERE username = ?", (req.new_email,))
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
+
+    await db.execute(
+        "UPDATE users SET username = ? WHERE id = ?", (req.new_email, current_user["id"])
+    )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (current_user["id"], "EMAIL_CHANGED", request.client.host if request.client else None),
+    )
+    return {"ok": True, "username": req.new_email}
+
+
+# ── Delete account (authenticated) ────────────────────────────────────────────
+
+class DeleteAccountRequest(BaseModel):
+    password: str
+
+
+@router.delete("/account")
+@limiter.limit("3/hour")
+async def delete_account(
+    request: Request,
+    response: Response,
+    req: DeleteAccountRequest,
+    current_user: dict = Depends(get_current_user),
+):
+    row = await db.fetchone(
+        "SELECT hashed_password FROM users WHERE id = ?", (current_user["id"],)
+    )
+    from app.crypto import verify_password as vp
+    if not row or not vp(req.password, row["hashed_password"]):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password is incorrect")
+
+    uid = current_user["id"]
+    await db.execute("DELETE FROM passkey_credentials WHERE user_id = ?", (uid,))
+    await db.execute("DELETE FROM webauthn_challenges WHERE user_id = ?", (uid,))
+    await db.execute("DELETE FROM account_recovery_tokens WHERE user_id = ?", (uid,))
+    await db.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (uid, "ACCOUNT_DELETED", request.client.host if request.client else None),
+    )
+    await db.execute("DELETE FROM users WHERE id = ?", (uid,))
+    response.delete_cookie(key=COOKIE_NAME, path="/")
+    return {"ok": True}
