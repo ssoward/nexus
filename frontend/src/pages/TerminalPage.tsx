@@ -240,14 +240,14 @@ export function TerminalPage() {
         )}
 
         <div className="flex flex-1 min-h-0">
-          <div className={activePage && !isMobile ? 'flex-[3] min-w-0' : 'flex-1 min-w-0'}>
+          <div className={`flex flex-col min-h-0 ${activePage && !isMobile ? 'flex-[3] min-w-0' : 'flex-1 min-w-0'}`}>
             {layoutMode === 'priority'
               ? <PriorityLayout sessions={running} isMobile={isMobile} />
               : <TerminalGrid sessions={running} isMobile={isMobile} />
             }
           </div>
           {activePage && !isMobile && (
-            <div className="flex-[2] min-w-0">
+            <div className="flex flex-col flex-[2] min-w-0 min-h-0">
               <EmbeddedPage url={activePage.url} name={activePage.name} />
             </div>
           )}
