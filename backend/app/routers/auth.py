@@ -29,14 +29,14 @@ COOKIE_NAME = "access_token"
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
-    s = get_settings()
+    # No max_age — session cookie so the browser discards it on close,
+    # requiring re-authentication (biometric/passkey) on every app open.
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
         httponly=True,
         secure=True,
         samesite="strict",
-        max_age=s.jwt_expire_minutes * 60,
         path="/",
     )
 
