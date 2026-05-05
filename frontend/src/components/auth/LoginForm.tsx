@@ -250,41 +250,43 @@ export function LoginForm() {
 
         {/* ── Sign In ──────────────────────────────────────────────── */}
         {step === 'credentials' && (
-          <form onSubmit={handleCredentials} className="space-y-4">
-            <div>
-              <label className="block text-xs font-mono text-terminal-fg/60 mb-1">Email</label>
-              <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                autoFocus autoComplete="email"
-                className="w-full bg-terminal-bg border border-terminal-border rounded px-3 py-2 text-sm font-mono text-terminal-fg focus:outline-none focus:border-terminal-active" />
-            </div>
-            <div>
-              <label className="block text-xs font-mono text-terminal-fg/60 mb-1">Password</label>
-              <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
-                autoComplete="current-password"
-                className="w-full bg-terminal-bg border border-terminal-border rounded px-3 py-2 text-sm font-mono text-terminal-fg focus:outline-none focus:border-terminal-active" />
-            </div>
-            {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
-            <button type="submit" disabled={loading}
-              className="w-full py-2 rounded bg-terminal-active text-white font-mono text-sm hover:bg-blue-600 disabled:opacity-50">
-              {loading ? 'Checking...' : 'Sign In'}
-            </button>
-            <div className="relative flex items-center my-1">
-              <div className="flex-grow border-t border-terminal-border/30" />
-              <span className="mx-2 text-[10px] font-mono text-terminal-fg/25">or</span>
-              <div className="flex-grow border-t border-terminal-border/30" />
-            </div>
+          <div className="space-y-4">
             <button type="button" onClick={handlePasswordlessLogin} disabled={loading}
-              className="w-full py-2 rounded border border-terminal-border text-terminal-fg/80 font-mono text-sm hover:border-terminal-active hover:text-terminal-fg disabled:opacity-50 flex items-center justify-center gap-2">
+              className="w-full py-2.5 rounded bg-terminal-active text-white font-mono text-sm hover:bg-blue-600 disabled:opacity-50 flex items-center justify-center gap-2">
               <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
                 <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
               </svg>
               {loading ? 'Waiting for biometric...' : 'Sign in with Passkey'}
             </button>
+            <div className="relative flex items-center">
+              <div className="flex-grow border-t border-terminal-border/30" />
+              <span className="mx-2 text-[10px] font-mono text-terminal-fg/25">or sign in with password</span>
+              <div className="flex-grow border-t border-terminal-border/30" />
+            </div>
+            <form onSubmit={handleCredentials} className="space-y-3">
+              <div>
+                <label className="block text-xs font-mono text-terminal-fg/60 mb-1">Email</label>
+                <input type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                  autoComplete="email"
+                  className="w-full bg-terminal-bg border border-terminal-border rounded px-3 py-2 text-sm font-mono text-terminal-fg focus:outline-none focus:border-terminal-active" />
+              </div>
+              <div>
+                <label className="block text-xs font-mono text-terminal-fg/60 mb-1">Password</label>
+                <input type="password" value={password} onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  className="w-full bg-terminal-bg border border-terminal-border rounded px-3 py-2 text-sm font-mono text-terminal-fg focus:outline-none focus:border-terminal-active" />
+              </div>
+              {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
+              <button type="submit" disabled={loading}
+                className="w-full py-2 rounded border border-terminal-border text-terminal-fg/80 font-mono text-sm hover:border-terminal-active hover:text-terminal-fg disabled:opacity-50">
+                {loading ? 'Checking...' : 'Sign In'}
+              </button>
+            </form>
             <button type="button" onClick={() => { setStep('register'); setError('') }}
               className="w-full py-1 text-xs text-terminal-active font-mono hover:underline">
               Create an account
             </button>
-          </form>
+          </div>
         )}
 
         {/* ── Register ─────────────────────────────────────────────── */}

@@ -47,6 +47,13 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       },
       scrollback: 5000,
       allowProposedApi: true,
+      // When Claude Code enables bracketedPasteMode, terminal.paste() would
+      // fire THREE separate onData events (\x1b[200~, text, \x1b[201~), each
+      // becoming a separate WebSocket frame and PTY write. Claude Code's input
+      // parser may not reassemble them correctly across separate reads.
+      // ignoreBracketedPasteMode bypasses the wrapping for desktop paste
+      // (Ctrl-V / Cmd-V), sending content as one atomic write instead.
+      ignoreBracketedPasteMode: true,
     })
 
     const fitAddon = new FitAddon()
@@ -175,7 +182,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       </div>
 
       {/* Mobile shortcut key strip — only rendered on touch devices for the active pane */}
-      <MobileKeybar terminal={terminal} isVisible={isMobile && isActive} sendInput={sendInput} />
+      <MobileKeybar isVisible={isMobile && isActive} sendInput={sendInput} />
 
       {/* Terminal area */}
       <div ref={containerRef} className="flex-1 min-h-0 p-1" />

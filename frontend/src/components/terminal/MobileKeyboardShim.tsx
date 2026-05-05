@@ -12,11 +12,11 @@ interface Props {
  * Forwards events from a hidden <input> (which triggers the OS soft keyboard)
  * to the xterm.js Terminal instance.
  *
- * IMPORTANT: special keys (Enter, arrows, Ctrl sequences) use sendInput() directly
- * rather than terminal.paste() to bypass bracketed-paste wrapping. When an app
- * like Claude Code enables bracketedPasteMode, terminal.paste('\r') sends
- * \x1b[200~\r\x1b[201~ which readline interprets as a literal newline in a paste
- * buffer, not a command submission.
+ * ALL paths use sendInput() directly to bypass bracketedPaste wrapping.
+ * When Claude Code enables bracketedPasteMode, terminal.paste() fires three
+ * separate onData events (\x1b[200~, text, \x1b[201~), producing three
+ * WebSocket frames and three PTY writes. Claude Code may not reassemble them
+ * correctly. sendInput() delivers content as one atomic PTY write.
  */
 export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput }: Props) {
   useEffect(() => {
@@ -28,10 +28,10 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput }: 
       const inputEl = evt.target as HTMLInputElement
       if (e.inputType === 'insertFromPaste') {
         // e.data can be null on iOS Safari for paste — read full value instead.
-        // Actual paste content goes through terminal.paste() so bracketedPaste
-        // wrapping is applied correctly for apps that handle it.
+        // Use sendInput (not terminal.paste) to deliver as one atomic PTY write,
+        // bypassing bracketedPaste fragmentation.
         const text = inputEl.value
-        if (text) terminal.paste(text)
+        if (text) sendInput(text)
       } else if (e.data) {
         // Regular typed characters — send directly to bypass paste wrapping
         sendInput(e.data)

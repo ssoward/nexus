@@ -1,5 +1,4 @@
 import { useCallback } from 'react'
-import type { Terminal } from '@xterm/xterm'
 import { useVoiceInput } from '@/hooks/useVoiceInput'
 import { toast } from '@/store/toastStore'
 
@@ -32,7 +31,6 @@ const KEYS: KeyDef[] = [
 ]
 
 interface Props {
-  terminal: Terminal | null
   isVisible: boolean
   sendInput: (data: string) => void
 }
@@ -42,11 +40,11 @@ interface Props {
  * physical keyboard.  Uses onPointerDown + e.preventDefault() so the button
  * never steals focus away from the hidden keyboard-guard input.
  */
-export function MobileKeybar({ terminal, isVisible, sendInput }: Props) {
-  // Voice transcripts are genuine paste content — terminal.paste() is correct here
+export function MobileKeybar({ isVisible, sendInput }: Props) {
+  // Voice transcripts go through sendInput to avoid bracketedPaste fragmentation
   const handleTranscript = useCallback(
-    (text: string) => terminal?.paste(text),
-    [terminal]
+    (text: string) => { if (text) sendInput(text) },
+    [sendInput]
   )
   const { isListening, isSupported, toggle: toggleVoice } = useVoiceInput(handleTranscript)
 
@@ -62,7 +60,7 @@ export function MobileKeybar({ terminal, isVisible, sendInput }: Props) {
     e.preventDefault()
     try {
       const text = await navigator.clipboard.readText()
-      if (text) terminal?.paste(text)
+      if (text) sendInput(text)
       else toast.warning('Clipboard is empty')
     } catch {
       toast.warning('Clipboard access denied — use long-press paste instead')

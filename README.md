@@ -11,7 +11,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Self-registration** — anyone can create an account; username is an email address
 - **Flexible MFA** — choose Authenticator App (TOTP), Email Code (OTP via SMTP), or Passkey (WebAuthn/FIDO2) during setup; switch between methods at any time from the login verification screen
 - **Passkey / WebAuthn** — FIDO2 hardware keys, Face ID, Touch ID, or any platform authenticator; challenge-response via `py-webauthn` + `@simplewebauthn/browser`; multiple keys per account; manage (add/rename/delete) from the settings panel; audit-logged
-- **Passwordless biometric login** — "Sign in with Passkey" button on the login screen skips username and password entirely; the browser presents any registered passkey for this site; server identifies the user from the credential, no credentials typed
+- **Passwordless biometric login** — passkey is the **primary** login action on the login screen; one tap triggers Face ID / Touch ID / hardware key with no username or password; server identifies the user from the credential; email + password remains available as a secondary fallback below the divider
 - **Email OTP** — 6-digit codes sent via SMTP, bcrypt-hashed, 10-minute TTL, replay-protected; "Resend code" button on login
 - **Account recovery** — "Lost access to authenticator?" link on the TOTP login step emails a single-use reset link (15-minute TTL) that clears MFA and forces re-enrollment on next login; all resets written to audit log
 - **TOTP two-factor authentication** — authenticator-app code (Google Authenticator, Authy, 1Password); QR setup built into login flow

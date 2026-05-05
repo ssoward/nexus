@@ -75,14 +75,14 @@ describe('MobileKeyboardShim', () => {
     expect(sendInput).toHaveBeenCalledWith('a')
   })
 
-  // ── Actual paste goes through terminal.paste (bracketedPaste should apply) ─
-  it('routes insertFromPaste events through terminal.paste, not sendInput', () => {
+  // ── Actual paste bypasses terminal.paste to avoid bracketedPaste fragmentation ─
+  it('routes insertFromPaste events through sendInput, bypassing terminal.paste', () => {
     const { inputEl, terminal, sendInput } = setup()
     Object.defineProperty(inputEl, 'value', { value: 'pasted text', configurable: true, writable: true })
     const evt = new InputEvent('input', { inputType: 'insertFromPaste', bubbles: true })
     inputEl.dispatchEvent(evt)
-    expect((terminal as ReturnType<typeof makeTerminal>).paste).toHaveBeenCalledWith('pasted text')
-    expect(sendInput).not.toHaveBeenCalled()
+    expect(sendInput).toHaveBeenCalledWith('pasted text')
+    expect((terminal as ReturnType<typeof makeTerminal>).paste).not.toHaveBeenCalled()
   })
 
   // ── Null terminal — no crash ───────────────────────────────────────────────
