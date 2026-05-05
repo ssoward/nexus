@@ -55,7 +55,7 @@ export function TerminalPage() {
   useAutoPromote(running)
 
   return (
-    <div className="flex h-screen bg-terminal-bg overflow-hidden">
+    <div className="flex h-dvh bg-terminal-bg overflow-hidden">
 
       {/* ── Mobile backdrop ── */}
       {isMobile && sidebarOpen && (

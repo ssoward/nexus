@@ -37,7 +37,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     const term = new Terminal({
       cursorBlink: true,
       // Slightly larger font on touch devices for readability
-      fontSize: isMobile ? 15 : 14,
+      fontSize: isMobile ? 13 : 14,
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       theme: {
         background: '#0d1117',
