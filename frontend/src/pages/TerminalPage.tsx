@@ -109,7 +109,7 @@ export function TerminalPage() {
 
       {/* ── Main area ── */}
       <div className="flex flex-col flex-1 min-w-0">
-        <header className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-terminal-border shrink-0">
+        <header className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-terminal-border shrink-0 overflow-x-hidden min-w-0">
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen((v) => !v)}
