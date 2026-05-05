@@ -448,6 +448,10 @@ export function LoginForm() {
               className="w-full py-2 rounded bg-terminal-active text-white font-mono text-sm hover:bg-blue-600 disabled:opacity-50">
               {loading ? 'Waiting for biometric...' : 'Use Passkey'}
             </button>
+            <button type="button" onClick={handleRequestRecovery} disabled={loading || !email}
+              className="w-full py-1 text-xs text-terminal-fg/30 font-mono hover:text-terminal-fg/60 disabled:opacity-40">
+              No passkey on this device? Send recovery link
+            </button>
             {backButton()}
           </div>
         )}
