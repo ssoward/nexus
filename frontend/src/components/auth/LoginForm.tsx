@@ -248,7 +248,21 @@ export function LoginForm() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-terminal-bg">
       <div className="w-full max-w-sm bg-[#161b22] border border-terminal-border rounded-lg p-8">
-        <h1 className="text-2xl font-mono font-bold text-terminal-fg mb-1">Nexus</h1>
+        <div className="flex items-center justify-between mb-1">
+          <h1 className="text-2xl font-mono font-bold text-terminal-fg">Nexus</h1>
+          <button
+            type="button"
+            onClick={() => window.location.reload()}
+            className="p-1.5 rounded text-terminal-fg/30 hover:text-terminal-fg hover:bg-terminal-border transition-colors"
+            title="Reload app"
+            aria-label="Reload app"
+          >
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 3a5 5 0 1 0 4.546 2.914.5.5 0 0 1 .908-.417A6 6 0 1 1 8 2v1z"/>
+              <path d="M8 4.466V.534a.25.25 0 0 1 .41-.192l2.36 1.966c.12.1.12.284 0 .384L8.41 4.658A.25.25 0 0 1 8 4.466z"/>
+            </svg>
+          </button>
+        </div>
         <p className="text-xs text-terminal-fg/40 font-mono mb-6">Terminal Gateway</p>
 
         {/* ── Sign In ──────────────────────────────────────────────── */}
