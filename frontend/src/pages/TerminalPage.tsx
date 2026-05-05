@@ -68,9 +68,9 @@ export function TerminalPage() {
       {/* ── Sidebar ── */}
       <div className={[
         'shrink-0 flex flex-col transition-all duration-200 overflow-hidden',
-        // Mobile: fixed drawer overlay
+        // Mobile: fixed drawer overlay, wider than desktop for easier touch use
         isMobile
-          ? `fixed inset-y-0 left-0 z-40 ${sidebarOpen ? 'w-64' : 'w-0'}`
+          ? `fixed inset-y-0 left-0 z-40 ${sidebarOpen ? 'w-80' : 'w-0'}`
           // Desktop: pushes content
           : sidebarOpen ? 'w-64' : 'w-0',
       ].join(' ')}>
@@ -78,25 +78,25 @@ export function TerminalPage() {
         <div className="flex border-b border-terminal-border shrink-0">
           <button
             onClick={() => setSidebarTab('sessions')}
-            className={`flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'sessions' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'sessions' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Sessions
           </button>
           <button
             onClick={() => setSidebarTab('orchestrator')}
-            className={`flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'orchestrator' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'orchestrator' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Orch
           </button>
           <button
             onClick={() => setSidebarTab('pages')}
-            className={`flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'pages' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'pages' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Pages
           </button>
           <button
             onClick={() => setSidebarTab('settings')}
-            className={`flex-1 py-1.5 text-[10px] font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'settings' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'settings' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Settings
           </button>
