@@ -29,6 +29,14 @@ export function LoginForm() {
 
   const resetCode = () => { setCode(''); setError('') }
 
+  // Stamp sessionStorage so useAuth knows this is an active session (not a fresh
+  // PWA open where iOS may have kept the httpOnly cookie but cleared sessionStorage).
+  const completeLogin = (username: string) => {
+    sessionStorage.setItem('nexus_active', '1')
+    setUser({ id: 0, username } as User)
+    window.location.href = '/'
+  }
+
   // ── Credentials step (sign in) ─────────────────────────────────────
   const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,8 +53,7 @@ export function LoginForm() {
       } else if (res.needs_passkey) {
         setStep('passkey')
       } else if (res.ok) {
-        setUser({ id: 0, username: res.username ?? email } as User)
-        window.location.href = '/'
+        completeLogin(res.username ?? email)
       }
     } catch (err: unknown) {
       const status = (err as { response?: { status: number } }).response?.status
@@ -105,8 +112,7 @@ export function LoginForm() {
       const credential = await startRegistration({ optionsJSON: options })
       const res = await setupPasskeyComplete(email, password, credential)
       if (res.ok) {
-        setUser({ id: 0, username: res.username ?? email } as User)
-        window.location.href = '/'
+        completeLogin(res.username ?? email)
       }
     } catch (err: unknown) {
       const name = (err as { name?: string }).name
@@ -123,8 +129,7 @@ export function LoginForm() {
       const credential = await startAuthentication({ optionsJSON: options })
       const res = await completePasskeyAuthentication(email, credential)
       if (res.ok) {
-        setUser({ id: 0, username: res.username ?? email } as User)
-        window.location.href = '/'
+        completeLogin(res.username ?? email)
       }
     } catch (err: unknown) {
       const status = (err as { response?: { status: number } }).response?.status
@@ -143,8 +148,7 @@ export function LoginForm() {
       const credential = await startAuthentication({ optionsJSON: optionsJSON as Parameters<typeof startAuthentication>[0]['optionsJSON'] })
       const res = await completePasswordlessAuth(credential, challenge_token)
       if (res.ok) {
-        setUser({ id: 0, username: res.username ?? '' } as User)
-        window.location.href = '/'
+        completeLogin(res.username ?? '')
       }
     } catch (err: unknown) {
       const name = (err as { name?: string }).name
@@ -162,8 +166,7 @@ export function LoginForm() {
     try {
       const res = await login(email, password, code)
       if (res.ok) {
-        setUser({ id: 0, username: res.username ?? email } as User)
-        window.location.href = '/'
+        completeLogin(res.username ?? email)
       } else {
         setError('Invalid code. Try again.')
         setCode('')
