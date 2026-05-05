@@ -51,7 +51,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_format: str = "text"  # "text" or "json"
     max_panes: int = 6
-    session_idle_timeout_seconds: int = 3600
+    session_idle_timeout_seconds: int = 0  # 0 = disabled; sessions run until manually closed or process exits
 
     # TLS auto-renewal
     tls_domain: str = ""

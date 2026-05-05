@@ -20,7 +20,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **JWT revocation** — logout immediately invalidates the token server-side
 - **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 24-hour TTL; visibility-based refresh catches missed intervals when the tab is backgrounded
 - **Rate limiting** — 10 login attempts per minute per IP via slowapi
-- **Idle timeout** — sessions idle longer than 24 hours are stopped automatically
+- **Long-lived sessions** — sessions run indefinitely until manually closed or the process exits naturally; idle timeout is disabled by default (`session_idle_timeout_seconds: 0`); PTY processes continue running on the server when the browser is closed, and reconnect automatically when the tab is reopened
 - **Mobile-friendly** — overlay sidebar, dot navigation, soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos; **Mic** button for voice-to-text input when the browser supports the Web Speech API; Enter and all control sequences bypass xterm.js bracketed-paste wrapping so readline-based apps (Claude Code, bash, etc.) receive bare `\r` and respond correctly
 - **Inactivity detection** — amber pulsing border and sidebar badge when a terminal has no output for 60 seconds; helps identify which session needs attention
 - **Priority Queue layout** — 80/20 split: one session gets most of the viewport, others are thumbnails; auto-promotes the most recently active session when the primary goes idle; toggle between Grid and Priority modes in the header
