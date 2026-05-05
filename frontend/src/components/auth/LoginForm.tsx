@@ -65,15 +65,15 @@ export function LoginForm() {
       setStep('mfa_choice')
     } catch (err: unknown) {
       const resp = (err as { response?: { status: number; data?: { detail?: unknown } } }).response
+      const detail = resp?.data?.detail
       if (resp?.status === 409) setError('An account with this email already exists.')
+      else if (resp?.status === 403) setError(typeof detail === 'string' ? detail : 'Registration is not allowed on this instance.')
       else if (resp?.status === 422) {
-        // Pydantic returns detail as an array of {msg} objects
-        const detail = resp.data?.detail
         if (Array.isArray(detail)) setError(detail.map((d: { msg?: string }) => d.msg ?? '').join('. '))
         else if (typeof detail === 'string') setError(detail)
         else setError('Invalid input.')
       }
-      else setError('Registration failed.')
+      else setError(typeof detail === 'string' ? detail : 'Registration failed.')
     } finally { setLoading(false) }
   }
 
