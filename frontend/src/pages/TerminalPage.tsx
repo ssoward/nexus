@@ -68,11 +68,11 @@ export function TerminalPage() {
       {/* ── Sidebar ── */}
       <div className={[
         'shrink-0 flex flex-col transition-all duration-200 overflow-hidden',
-        // Mobile: fixed drawer overlay, wider than desktop for easier touch use
+        // Mobile: full-screen fixed overlay with opaque background
         isMobile
-          ? `fixed inset-y-0 left-0 z-40 ${sidebarOpen ? 'w-80' : 'w-0'}`
-          // Desktop: pushes content
-          : sidebarOpen ? 'w-64' : 'w-0',
+          ? `fixed inset-0 z-40 bg-[#161b22] ${sidebarOpen ? 'w-full' : 'w-0'}`
+          // Desktop: pushes content, no explicit background needed
+          : `bg-[#161b22] ${sidebarOpen ? 'w-64' : 'w-0'}`,
       ].join(' ')}>
         {/* Sidebar tab bar */}
         <div className="flex border-b border-terminal-border shrink-0">
