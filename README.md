@@ -17,9 +17,9 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **TOTP two-factor authentication** — authenticator-app code (Google Authenticator, Authy, 1Password); QR setup built into login flow
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required at account creation
 - **Account lockout** — 5 failed attempts triggers a 15-minute lockout; active tokens also blocked during lockout
-- **JWT revocation** — logout immediately invalidates the token server-side
+- **JWT revocation** — logout, password change, and email change all immediately invalidate the current token server-side; a fresh token is issued on password/email change so the session stays alive
 - **Sliding session** — frontend silently refreshes the JWT every 30 minutes; active users are never evicted by the 24-hour TTL; visibility-based refresh catches missed intervals when the tab is backgrounded
-- **Rate limiting** — 10 login attempts per minute per IP via slowapi
+- **Rate limiting** — all sensitive endpoints protected via slowapi: login (10/min), logout (10/min), /me profile (30/min), TOTP setup (5/min), WS token (60/min), refresh (30/min), change-password (5/min), change-email (5/min), create-user (5/min), bootstrap-totp (5/min), setup-mfa (5/min), resend-otp (3/min), recovery-request (3/hour), recovery-reset (5/hour)
 - **Long-lived sessions** — sessions run indefinitely until manually closed or the process exits naturally; idle timeout is disabled by default (`session_idle_timeout_seconds: 0`); PTY processes continue running on the server when the browser is closed, and reconnect automatically when the tab is reopened
 - **Mobile-friendly** — full-screen opaque sidebar overlay on mobile (hamburger opens a solid panel covering the entire viewport, no bleed-through); soft keyboard support (tested on iOS Safari / Chrome Android); quick-access keybar with Tab, ^C, Paste, arrows, and common Ctrl combos; **Mic** button for voice-to-text input when the browser supports the Web Speech API; Enter and all control sequences bypass xterm.js bracketed-paste wrapping so readline-based apps (Claude Code, bash, etc.) receive bare `\r` and respond correctly
 - **Inactivity detection** — amber pulsing border and sidebar badge when a terminal has no output for 60 seconds; helps identify which session needs attention

@@ -76,7 +76,7 @@ async def login(
     return {"ok": True, "username": user["username"]}
 
 
-MAX_SESSION_SECONDS = 24 * 60 * 60  # Absolute session lifetime: 24 hours
+from app.dependencies import _MAX_SESSION_SECONDS as MAX_SESSION_SECONDS
 
 
 @router.post("/refresh")
@@ -110,6 +110,7 @@ async def refresh_token(
 
 
 @router.post("/logout")
+@limiter.limit("10/minute")
 async def logout(
     request: Request,
     response: Response,
@@ -170,6 +171,7 @@ class TotpSetupResponse(BaseModel):
 
 
 @router.post("/setup-totp", response_model=TotpSetupResponse)
+@limiter.limit("5/minute")
 async def setup_totp(
     request: Request,
     current_user: dict = Depends(get_current_user),
@@ -229,7 +231,8 @@ async def setup_totp(
 
 
 @router.get("/me")
-async def me(current_user: dict = Depends(get_current_user)):
+@limiter.limit("30/minute")
+async def me(request: Request, current_user: dict = Depends(get_current_user)):
     row = await db.fetchone(
         "SELECT encrypted_totp_secret, mfa_method FROM users WHERE id = ?",
         (current_user["id"],),
@@ -673,6 +676,7 @@ class ChangeEmailRequest(BaseModel):
 @limiter.limit("5/minute")
 async def change_email(
     request: Request,
+    response: Response,
     req: ChangeEmailRequest,
     current_user: dict = Depends(get_current_user),
 ):
@@ -690,10 +694,27 @@ async def change_email(
     await db.execute(
         "UPDATE users SET username = ? WHERE id = ?", (req.new_email, current_user["id"])
     )
+
+    # Revoke the old token so any cached credential for the old email is invalidated
+    token = request.cookies.get(COOKIE_NAME)
+    if token:
+        payload = decode_access_token(token)
+        if payload:
+            jti = payload.get("jti")
+            exp = payload.get("exp")
+            if jti and exp:
+                expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
+                await db.execute(
+                    "INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)",
+                    (jti, current_user["id"], expires_at),
+                )
+
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
         (current_user["id"], "EMAIL_CHANGED", request.client.host if request.client else None),
     )
+    new_token = create_access_token(current_user["id"])
+    _set_auth_cookie(response, new_token)
     return {"ok": True, "username": req.new_email}
 
 

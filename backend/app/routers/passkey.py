@@ -557,6 +557,7 @@ async def login_complete_passwordless(
             expected_origin=_get_origin(request),
             credential_public_key=bytes(cred_row["public_key"]),
             credential_current_sign_count=cred_row["sign_count"],
+            require_user_verification=True,
         )
     except Exception as exc:
         logger.warning("Passwordless login failed for user %s: %s", user_row["id"], exc)
