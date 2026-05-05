@@ -71,12 +71,20 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     term.unicode.activeVersion = '11'
 
     term.open(containerRef.current)
-    fitAddon.fit()
-
     fitAddonRef.current = fitAddon
-    setTerminal(term)  // triggers re-render → useTerminalSocket receives the instance
+
+    // Defer first fit until custom fonts are loaded — measuring before that
+    // gives the fallback font's wider cell, which makes the PTY think it has
+    // fewer columns and causes text to wrap too early.
+    let mounted = true
+    document.fonts.ready.then(() => {
+      if (!mounted) return
+      fitAddon.fit()
+      setTerminal(term)  // triggers re-render → useTerminalSocket receives the instance
+    })
 
     return () => {
+      mounted = false
       term.dispose()
       setTerminal(null)
     }
@@ -185,7 +193,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       <MobileKeybar isVisible={isMobile && isActive} sendInput={sendInput} />
 
       {/* Terminal area */}
-      <div ref={containerRef} className="flex-1 min-h-0 p-1" />
+      <div ref={containerRef} className="flex-1 min-h-0" />
 
       {/* Dead overlay */}
       {isDead && (
