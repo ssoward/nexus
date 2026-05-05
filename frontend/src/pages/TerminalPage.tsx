@@ -103,7 +103,7 @@ export function TerminalPage() {
         </div>
         {sidebarTab === 'sessions' && <SessionList onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
         {sidebarTab === 'orchestrator' && <OrchestratorPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
-        {sidebarTab === 'pages' && <PageList onClose={isMobile ? () => setSidebarOpen(false) : undefined} onSelectPage={setActivePage} activePage={activePage} />}
+        {sidebarTab === 'pages' && <PageList onClose={isMobile ? () => setSidebarOpen(false) : undefined} onSelectPage={(p) => { setActivePage(p); if (isMobile && p) setSidebarOpen(false) }} activePage={activePage} />}
         {sidebarTab === 'settings' && <SettingsPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
       </div>
 
@@ -206,6 +206,38 @@ export function TerminalPage() {
 
         {showTotpSetup && <TotpSetupModal hasTotp={user?.has_totp ?? false} onClose={() => setShowTotpSetup(false)} />}
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+
+        {/* Mobile full-screen page overlay */}
+        {activePage && isMobile && (
+          <div className="fixed inset-0 z-50 flex flex-col bg-white">
+            <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-terminal-border">
+              <button
+                onClick={() => setActivePage(null)}
+                className="p-1.5 rounded text-terminal-fg/60 hover:text-terminal-fg hover:bg-terminal-border transition-colors"
+                aria-label="Back to terminals"
+              >
+                <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M11.354 1.646a.5.5 0 0 1 0 .708L5.707 8l5.647 5.646a.5.5 0 0 1-.708.708l-6-6a.5.5 0 0 1 0-.708l6-6a.5.5 0 0 1 .708 0z"/>
+                </svg>
+              </button>
+              <span className="text-xs font-mono text-terminal-fg truncate flex-1">{activePage.name}</span>
+              <a
+                href={activePage.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] font-mono text-terminal-active hover:underline shrink-0"
+              >
+                Open in browser
+              </a>
+            </div>
+            <iframe
+              src={activePage.url}
+              sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+              className="flex-1 w-full border-0"
+              title={activePage.name}
+            />
+          </div>
+        )}
 
         <div className="flex flex-1 min-h-0">
           <div className={activePage && !isMobile ? 'flex-[3] min-w-0' : 'flex-1 min-w-0'}>
