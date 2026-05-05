@@ -152,3 +152,19 @@ export async function listPasskeyCredentials(): Promise<PasskeyCredential[]> {
 export async function deletePasskeyCredential(id: number): Promise<void> {
   await client.delete(`/auth/passkey/credentials/${id}`)
 }
+
+export async function beginPasswordlessAuth(): Promise<PublicKeyCredentialRequestOptionsJSON & { challenge_token: string }> {
+  const res = await client.post<PublicKeyCredentialRequestOptionsJSON & { challenge_token: string }>('/auth/passkey/login/begin')
+  return res.data
+}
+
+export async function completePasswordlessAuth(
+  credential: AuthenticationResponseJSON,
+  challengeToken: string,
+): Promise<LoginResponse> {
+  const res = await client.post<LoginResponse>('/auth/passkey/login/complete', {
+    credential,
+    challenge_token: challengeToken,
+  })
+  return res.data
+}

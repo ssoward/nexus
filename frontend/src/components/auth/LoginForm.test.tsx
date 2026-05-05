@@ -31,7 +31,7 @@ describe('LoginForm', () => {
 
   it('shows error when submitting empty fields', async () => {
     render(<LoginForm />)
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
     expect(screen.getByText(/email and password are required/i)).toBeInTheDocument()
   })
 
@@ -42,7 +42,7 @@ describe('LoginForm', () => {
     const { container } = render(<LoginForm />)
     await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'secret123')
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/authenticator code/i)).toBeInTheDocument()
@@ -56,7 +56,7 @@ describe('LoginForm', () => {
     const { container } = render(<LoginForm />)
     await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'secret123')
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
 
     await waitFor(() => {
       expect(locationRef.href).toBe('/')
@@ -70,7 +70,7 @@ describe('LoginForm', () => {
     const { container } = render(<LoginForm />)
     await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'bad')
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/invalid credentials/i)).toBeInTheDocument()
@@ -84,7 +84,7 @@ describe('LoginForm', () => {
     const { container } = render(<LoginForm />)
     await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'pass')
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
 
     await waitFor(() => {
       expect(screen.getByText(/too many attempts/i)).toBeInTheDocument()
@@ -98,11 +98,11 @@ describe('LoginForm', () => {
     const { container } = render(<LoginForm />)
     await userEvent.type(container.querySelector('input[autocomplete="email"]')!, 'alice@example.com')
     await userEvent.type(container.querySelector('input[autocomplete="current-password"]')!, 'secret123')
-    await userEvent.click(screen.getByRole('button', { name: /sign in/i }))
+    await userEvent.click(screen.getByRole('button', { name: /^sign in$/i }))
 
     await waitFor(() => screen.getByText(/authenticator code/i))
     await userEvent.click(screen.getByRole('button', { name: /back/i }))
 
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^sign in$/i })).toBeInTheDocument()
   })
 })

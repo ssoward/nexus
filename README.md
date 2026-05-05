@@ -11,6 +11,7 @@ A self-hosted, browser-based terminal multiplexer. Open up to six native PTY ses
 - **Self-registration** — anyone can create an account; username is an email address
 - **Flexible MFA** — choose Authenticator App (TOTP), Email Code (OTP via SMTP), or Passkey (WebAuthn/FIDO2) during setup; switch between methods at any time from the login verification screen
 - **Passkey / WebAuthn** — FIDO2 hardware keys, Face ID, Touch ID, or any platform authenticator; challenge-response via `py-webauthn` + `@simplewebauthn/browser`; multiple keys per account; manage (add/rename/delete) from the settings panel; audit-logged
+- **Passwordless biometric login** — "Sign in with Passkey" button on the login screen skips username and password entirely; the browser presents any registered passkey for this site; server identifies the user from the credential, no credentials typed
 - **Email OTP** — 6-digit codes sent via SMTP, bcrypt-hashed, 10-minute TTL, replay-protected; "Resend code" button on login
 - **Account recovery** — "Lost access to authenticator?" link on the TOTP login step emails a single-use reset link (15-minute TTL) that clears MFA and forces re-enrollment on next login; all resets written to audit log
 - **TOTP two-factor authentication** — authenticator-app code (Google Authenticator, Authy, 1Password); QR setup built into login flow
@@ -387,6 +388,8 @@ All API routes are under `/api/`.
 | POST | `/api/auth/passkey/setup/complete` | Form password | Complete passkey registration; issues auth cookie on success |
 | POST | `/api/auth/passkey/authenticate/begin` | — | Return assertion options for a user with registered passkeys |
 | POST | `/api/auth/passkey/authenticate/complete` | — | Verify assertion; issues auth cookie on success |
+| POST | `/api/auth/passkey/login/begin` | — | Begin passwordless login — no username; returns options + `challenge_token` |
+| POST | `/api/auth/passkey/login/complete` | — | Verify passwordless assertion; user identified from credential_id; issues auth cookie |
 | POST | `/api/auth/passkey/register/begin` | Cookie | Begin adding an additional passkey to an authenticated account |
 | POST | `/api/auth/passkey/register/complete` | Cookie | Complete adding a new passkey (optionally name the credential) |
 | GET | `/api/auth/passkey/credentials` | Cookie | List all registered passkeys for the current user |
@@ -676,6 +679,7 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 3. On subsequent logins, POST email + password to `/api/auth/login`
 4. Server returns `{needs_totp: true}`, `{needs_email_otp: true}`, or `{needs_passkey: true}` based on configured method
 5. For passkey login: frontend calls `/passkey/authenticate/begin` → browser prompts platform/hardware authenticator → assertion POSTed to `/passkey/authenticate/complete`
+5a. For **passwordless** login: frontend calls `/passkey/login/begin` (no username) → browser presents any registered passkey for this site → assertion + `challenge_token` POSTed to `/passkey/login/complete` → server looks up user by credential_id
 6. User can switch methods via "Use email code instead" / "Use authenticator instead" links
 7. On success, an httpOnly/Secure/SameSite=Strict JWT cookie is set
 8. WebSocket connections require a separate single-use token obtained via `/api/auth/ws-token`

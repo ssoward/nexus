@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { startRegistration, startAuthentication } from '@simplewebauthn/browser'
-import { login, register, setupMfa, resendOtp, switchMfa, requestRecovery, setupPasskeyBegin, setupPasskeyComplete, beginPasskeyAuthentication, completePasskeyAuthentication } from '@/api/auth'
+import { login, register, setupMfa, resendOtp, switchMfa, requestRecovery, setupPasskeyBegin, setupPasskeyComplete, beginPasskeyAuthentication, completePasskeyAuthentication, beginPasswordlessAuth, completePasswordlessAuth } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
 import type { User } from '@/types/auth'
 
@@ -134,6 +134,26 @@ export function LoginForm() {
     } finally { setLoading(false) }
   }
 
+  // ── Passwordless / biometric login (no username or password) ────────
+  const handlePasswordlessLogin = async () => {
+    setLoading(true); setError('')
+    try {
+      const beginData = await beginPasswordlessAuth()
+      const { challenge_token, ...optionsJSON } = beginData
+      const credential = await startAuthentication({ optionsJSON: optionsJSON as Parameters<typeof startAuthentication>[0]['optionsJSON'] })
+      const res = await completePasswordlessAuth(credential, challenge_token)
+      if (res.ok) {
+        setUser({ id: 0, username: res.username ?? '' } as User)
+        window.location.href = '/'
+      }
+    } catch (err: unknown) {
+      const name = (err as { name?: string }).name
+      if (name === 'NotAllowedError') setError('Biometric cancelled or not available.')
+      else if (name === 'NotSupportedError') setError('No passkeys available on this device.')
+      else setError('Passkey sign-in failed. Try again.')
+    } finally { setLoading(false) }
+  }
+
   // ── TOTP / Email OTP verification ──────────────────────────────────
   const handleVerifyCode = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -247,6 +267,18 @@ export function LoginForm() {
             <button type="submit" disabled={loading}
               className="w-full py-2 rounded bg-terminal-active text-white font-mono text-sm hover:bg-blue-600 disabled:opacity-50">
               {loading ? 'Checking...' : 'Sign In'}
+            </button>
+            <div className="relative flex items-center my-1">
+              <div className="flex-grow border-t border-terminal-border/30" />
+              <span className="mx-2 text-[10px] font-mono text-terminal-fg/25">or</span>
+              <div className="flex-grow border-t border-terminal-border/30" />
+            </div>
+            <button type="button" onClick={handlePasswordlessLogin} disabled={loading}
+              className="w-full py-2 rounded border border-terminal-border text-terminal-fg/80 font-mono text-sm hover:border-terminal-active hover:text-terminal-fg disabled:opacity-50 flex items-center justify-center gap-2">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                <path d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+              </svg>
+              {loading ? 'Waiting for biometric...' : 'Sign in with Passkey'}
             </button>
             <button type="button" onClick={() => { setStep('register'); setError('') }}
               className="w-full py-1 text-xs text-terminal-active font-mono hover:underline">

@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 from datetime import datetime, timezone, timedelta
 
 import webauthn
@@ -445,3 +446,145 @@ async def delete_credential(
         await db.execute("UPDATE users SET mfa_method = NULL WHERE id = ?", (current_user["id"],))
 
     return {"ok": True}
+
+
+# ── Passwordless / biometric login (no username or password required) ─────────
+#
+# Uses WebAuthn discoverable credentials (resident keys).  The authenticator
+# presents any passkey stored for this rp_id; the server identifies the user
+# from the credential_id returned in the assertion.
+#
+# Challenge is stored with user_id=0 (anonymous sentinel — webauthn_challenges
+# has no FK constraint so this is safe) keyed by a per-request UUID token that
+# the frontend echoes back in the complete call.
+
+async def _store_passwordless_challenge(challenge_bytes: bytes, token: str) -> None:
+    expires_at = (datetime.now(timezone.utc) + timedelta(seconds=CHALLENGE_TTL_SECONDS)).isoformat()
+    await db.execute(
+        "INSERT INTO webauthn_challenges (user_id, challenge, purpose, expires_at) VALUES (?, ?, ?, ?)",
+        (0, bytes_to_base64url(challenge_bytes), f"passwordless:{token}", expires_at),
+    )
+
+
+async def _consume_passwordless_challenge(token: str) -> bytes:
+    row = await db.fetchone(
+        "SELECT id, challenge, expires_at FROM webauthn_challenges "
+        "WHERE user_id = 0 AND purpose = ? AND used = 0 ORDER BY id DESC LIMIT 1",
+        (f"passwordless:{token}",),
+    )
+    if not row:
+        raise HTTPException(status_code=400, detail="No pending challenge. Restart the sign-in.")
+    expires_at = datetime.fromisoformat(row["expires_at"])
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    if datetime.now(timezone.utc) > expires_at:
+        raise HTTPException(status_code=400, detail="Challenge expired. Try again.")
+    await db.execute("UPDATE webauthn_challenges SET used = 1 WHERE id = ?", (row["id"],))
+    return base64url_to_bytes(row["challenge"])
+
+
+@router.post("/login/begin")
+@limiter.limit("10/minute")
+async def login_begin_passwordless(request: Request):
+    """Begin passwordless biometric login — no username or password required.
+
+    Returns WebAuthn assertion options with an empty allow_credentials list so
+    the platform authenticator can present any resident passkey stored for this
+    rp_id.  The response also includes a challenge_token that must be echoed
+    back to /login/complete to correlate the challenge.
+    """
+    s = get_settings()
+    options = webauthn.generate_authentication_options(
+        rp_id=s.rp_id,
+        allow_credentials=[],  # discoverable — browser shows stored passkeys
+        user_verification=UserVerificationRequirement.REQUIRED,
+    )
+    token = str(uuid.uuid4())
+    await _store_passwordless_challenge(options.challenge, token)
+    response_data = json.loads(webauthn.options_to_json(options))
+    response_data["challenge_token"] = token
+    return response_data
+
+
+class PasswordlessCompleteRequest(BaseModel):
+    credential: dict
+    challenge_token: str
+
+
+@router.post("/login/complete")
+@limiter.limit("10/minute")
+async def login_complete_passwordless(
+    request: Request,
+    response: Response,
+    req: PasswordlessCompleteRequest,
+):
+    """Verify passwordless assertion and issue auth cookie.
+
+    The user is identified by matching the credential_id in the assertion
+    against the passkey_credentials table — no username field needed.
+    """
+    expected_challenge = await _consume_passwordless_challenge(req.challenge_token)
+    s = get_settings()
+
+    cred_id_bytes = base64url_to_bytes(req.credential["id"])
+    cred_row = await db.fetchone(
+        "SELECT id, user_id, public_key, sign_count FROM passkey_credentials WHERE credential_id = ?",
+        (cred_id_bytes,),
+    )
+    if not cred_row:
+        raise HTTPException(status_code=400, detail="Unknown credential")
+
+    user_row = await db.fetchone(
+        "SELECT id, username, failed_login_count, lockout_until FROM users WHERE id = ?",
+        (cred_row["user_id"],),
+    )
+    if not user_row:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+
+    if user_row["lockout_until"]:
+        lockout_until = datetime.fromisoformat(user_row["lockout_until"])
+        if lockout_until.tzinfo is None:
+            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) < lockout_until:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account locked")
+
+    try:
+        cred = _build_authentication_credential(req.credential)
+        verified = webauthn.verify_authentication_response(
+            credential=cred,
+            expected_challenge=expected_challenge,
+            expected_rp_id=s.rp_id,
+            expected_origin=_get_origin(request),
+            credential_public_key=bytes(cred_row["public_key"]),
+            credential_current_sign_count=cred_row["sign_count"],
+        )
+    except Exception as exc:
+        logger.warning("Passwordless login failed for user %s: %s", user_row["id"], exc)
+        await db.execute(
+            "UPDATE users SET failed_login_count = failed_login_count + 1 WHERE id = ?",
+            (user_row["id"],),
+        )
+        await db.execute(
+            "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+            (user_row["id"], AuditAction.PASSKEY_AUTH_FAILURE.value,
+             request.client.host if request.client else None),
+        )
+        raise HTTPException(status_code=400, detail="Passkey verification failed")
+
+    await db.execute(
+        "UPDATE passkey_credentials SET sign_count = ?, last_used_at = ? WHERE id = ?",
+        (verified.new_sign_count, datetime.now(timezone.utc).isoformat(), cred_row["id"]),
+    )
+    await db.execute(
+        "UPDATE users SET failed_login_count = 0, lockout_until = NULL WHERE id = ?",
+        (user_row["id"],),
+    )
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (user_row["id"], AuditAction.PASSKEY_AUTH_SUCCESS.value,
+         request.client.host if request.client else None),
+    )
+
+    token = create_access_token(user_row["id"])
+    _set_auth_cookie(response, token)
+    return {"ok": True, "username": user_row["username"]}
