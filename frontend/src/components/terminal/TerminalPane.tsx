@@ -166,7 +166,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
   return (
     <div
       className={clsx(
-        'relative flex flex-col rounded border overflow-hidden',
+        'relative flex flex-col rounded border overflow-hidden h-full',
         isIdle ? 'animate-idle-pulse' :
         isActive ? 'border-terminal-active' : 'border-terminal-border',
         'bg-terminal-bg'
