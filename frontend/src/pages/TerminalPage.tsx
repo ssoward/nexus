@@ -22,6 +22,7 @@ export function TerminalPage() {
   const { layoutMode, setLayoutMode, autoPromote, setAutoPromote } = useSessionStore()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [sidebarWidth, setSidebarWidth] = useState(256)
+  const sidebarRef = useRef<HTMLDivElement>(null)
   const [terminalPct, setTerminalPct] = useState(60)
   const splitContainerRef = useRef<HTMLDivElement>(null)
   const [sidebarTab, setSidebarTab] = useState<'sessions' | 'orchestrator' | 'pages' | 'settings'>('sessions')
@@ -56,20 +57,22 @@ export function TerminalPage() {
 
   const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
-    const startX = e.clientX
-    const startWidth = sidebarWidth
     document.body.style.userSelect = 'none'
     const onMove = (me: MouseEvent) => {
-      setSidebarWidth(Math.max(160, Math.min(520, startWidth + me.clientX - startX)))
+      const w = Math.max(160, Math.min(520, me.clientX))
+      // Direct DOM update so sidebar and main area move in the same frame
+      if (sidebarRef.current) sidebarRef.current.style.width = `${w}px`
     }
-    const onUp = () => {
+    const onUp = (me: MouseEvent) => {
       document.body.style.userSelect = ''
+      // Sync React state so the value survives re-renders (e.g. sidebar toggle)
+      setSidebarWidth(Math.max(160, Math.min(520, me.clientX)))
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
     window.addEventListener('mousemove', onMove)
     window.addEventListener('mouseup', onUp)
-  }, [sidebarWidth])
+  }, [])
 
   const handlePageResizeStart = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
@@ -106,6 +109,7 @@ export function TerminalPage() {
 
       {/* ── Sidebar ── */}
       <div
+        ref={sidebarRef}
         className={[
           'shrink-0 flex flex-col overflow-hidden',
           isMobile
