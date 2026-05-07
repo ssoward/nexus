@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { TerminalGrid } from '@/components/terminal/TerminalGrid'
 import { PriorityLayout } from '@/components/terminal/PriorityLayout'
 import { SessionList } from '@/components/ui/SessionList'
@@ -21,6 +21,9 @@ export function TerminalPage() {
   const isMobile = useIsMobile()
   const { layoutMode, setLayoutMode, autoPromote, setAutoPromote } = useSessionStore()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
+  const [sidebarWidth, setSidebarWidth] = useState(256)
+  const [terminalPct, setTerminalPct] = useState(60)
+  const splitContainerRef = useRef<HTMLDivElement>(null)
   const [sidebarTab, setSidebarTab] = useState<'sessions' | 'orchestrator' | 'pages' | 'settings'>('sessions')
   const [showTotpSetup, setShowTotpSetup] = useState(false)
   const [showHelp, setShowHelp] = useState(false)
@@ -51,6 +54,42 @@ export function TerminalPage() {
     return () => document.removeEventListener('visibilitychange', handleVisibility)
   }, [refresh])
 
+  const handleSidebarResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = sidebarWidth
+    document.body.style.userSelect = 'none'
+    const onMove = (me: MouseEvent) => {
+      setSidebarWidth(Math.max(160, Math.min(520, startWidth + me.clientX - startX)))
+    }
+    const onUp = () => {
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [sidebarWidth])
+
+  const handlePageResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    const container = splitContainerRef.current
+    if (!container) return
+    const rect = container.getBoundingClientRect()
+    document.body.style.userSelect = 'none'
+    const onMove = (me: MouseEvent) => {
+      const pct = ((me.clientX - rect.left) / rect.width) * 100
+      setTerminalPct(Math.max(20, Math.min(80, pct)))
+    }
+    const onUp = () => {
+      document.body.style.userSelect = ''
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }, [])
+
   const running = sessions.filter((s) => s.status === 'running')
   useAutoPromote(running)
 
@@ -66,14 +105,15 @@ export function TerminalPage() {
       )}
 
       {/* ── Sidebar ── */}
-      <div className={[
-        'shrink-0 flex flex-col transition-all duration-200 overflow-hidden',
-        // Mobile: full-screen fixed overlay with opaque background
-        isMobile
-          ? `fixed inset-0 z-40 bg-[#161b22] ${sidebarOpen ? 'w-full' : 'w-0'}`
-          // Desktop: pushes content, no explicit background needed
-          : `bg-[#161b22] ${sidebarOpen ? 'w-64' : 'w-0'}`,
-      ].join(' ')}>
+      <div
+        className={[
+          'shrink-0 flex flex-col overflow-hidden',
+          isMobile
+            ? `fixed inset-0 z-40 bg-[#161b22] transition-all duration-200 ${sidebarOpen ? 'w-full' : 'w-0'}`
+            : `bg-[#161b22] ${sidebarOpen ? '' : 'w-0'}`,
+        ].join(' ')}
+        style={!isMobile && sidebarOpen ? { width: sidebarWidth } : undefined}
+      >
         {/* Sidebar tab bar */}
         <div className="flex border-b border-terminal-border shrink-0">
           <button
@@ -106,6 +146,16 @@ export function TerminalPage() {
         {sidebarTab === 'pages' && <PageList onClose={isMobile ? () => setSidebarOpen(false) : undefined} onSelectPage={(p) => { setActivePage(p); if (isMobile && p) setSidebarOpen(false) }} activePage={activePage} />}
         {sidebarTab === 'settings' && <SettingsPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
       </div>
+
+      {/* ── Sidebar resize handle ── */}
+      {!isMobile && sidebarOpen && (
+        <div
+          onMouseDown={handleSidebarResizeStart}
+          className="relative w-1.5 shrink-0 cursor-col-resize group z-10 self-stretch"
+        >
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-terminal-border group-hover:bg-terminal-active/60 transition-colors" />
+        </div>
+      )}
 
       {/* ── Main area ── */}
       <div className="flex flex-col flex-1 min-w-0">
@@ -239,17 +289,32 @@ export function TerminalPage() {
           </div>
         )}
 
-        <div className="flex flex-1 min-h-0">
-          <div className={`flex flex-col min-h-0 ${activePage && !isMobile ? 'flex-[3] min-w-0' : 'flex-1 min-w-0'}`}>
+        <div className="flex flex-1 min-h-0" ref={splitContainerRef}>
+          <div
+            className="flex flex-col min-h-0 min-w-0"
+            style={activePage && !isMobile ? { flex: `${terminalPct} 1 0%` } : { flex: '1 1 0%' }}
+          >
             {layoutMode === 'priority'
               ? <PriorityLayout sessions={running} isMobile={isMobile} />
               : <TerminalGrid sessions={running} isMobile={isMobile} />
             }
           </div>
           {activePage && !isMobile && (
-            <div className="flex flex-col flex-[2] min-w-0 min-h-0">
-              <EmbeddedPage url={activePage.url} name={activePage.name} />
-            </div>
+            <>
+              {/* Page resize handle */}
+              <div
+                onMouseDown={handlePageResizeStart}
+                className="relative w-1.5 shrink-0 cursor-col-resize group self-stretch"
+              >
+                <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-terminal-border group-hover:bg-terminal-active/60 transition-colors" />
+              </div>
+              <div
+                className="flex flex-col min-w-0 min-h-0"
+                style={{ flex: `${100 - terminalPct} 1 0%` }}
+              >
+                <EmbeddedPage url={activePage.url} name={activePage.name} />
+              </div>
+            </>
           )}
         </div>
       </div>
