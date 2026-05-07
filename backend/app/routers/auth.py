@@ -41,6 +41,27 @@ def _set_auth_cookie(response: Response, token: str) -> None:
     )
 
 
+async def _available_mfa_methods(username: str) -> list[str]:
+    """Return all MFA methods the user has configured credentials for."""
+    row = await db.fetchone(
+        "SELECT id, mfa_method, encrypted_totp_secret FROM users WHERE username = ?",
+        (username,),
+    )
+    if not row:
+        return []
+    methods: list[str] = []
+    passkey_row = await db.fetchone(
+        "SELECT 1 FROM passkey_credentials WHERE user_id = ? LIMIT 1", (row["id"],)
+    )
+    if passkey_row:
+        methods.append("passkey")
+    if row["encrypted_totp_secret"]:
+        methods.append("totp")
+    if row["mfa_method"] == "email_otp":
+        methods.append("email_otp")
+    return methods
+
+
 @router.post("/login")
 @limiter.limit("10/minute")
 async def login(
@@ -56,14 +77,14 @@ async def login(
     if user == NEEDS_MFA_SETUP:
         return {"ok": False, "needs_mfa_setup": True}
 
-    if user == NEEDS_TOTP:
-        return {"ok": False, "needs_totp": True}
-
-    if user == NEEDS_EMAIL_OTP:
-        return {"ok": False, "needs_email_otp": True}
-
-    if user == NEEDS_PASSKEY:
-        return {"ok": False, "needs_passkey": True}
+    if user in (NEEDS_TOTP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY):
+        needs_key = {
+            NEEDS_TOTP: "needs_totp",
+            NEEDS_EMAIL_OTP: "needs_email_otp",
+            NEEDS_PASSKEY: "needs_passkey",
+        }[user]
+        available = await _available_mfa_methods(username)
+        return {"ok": False, needs_key: True, "available_methods": available}
 
     if user is None:
         raise HTTPException(

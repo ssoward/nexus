@@ -8,6 +8,7 @@ type Step =
   | 'credentials'
   | 'register'
   | 'mfa_choice'
+  | 'mfa_select'
   | 'totp_setup'
   | 'email_otp_setup'
   | 'totp'
@@ -25,6 +26,7 @@ export function LoginForm() {
   const [qrCode, setQrCode] = useState('')
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [availableMethods, setAvailableMethods] = useState<string[]>([])
   const { setUser } = useAuthStore()
 
   const resetCode = () => { setCode(''); setError('') }
@@ -46,12 +48,17 @@ export function LoginForm() {
       const res = await login(email, password)
       if (res.needs_mfa_setup) {
         setStep('mfa_choice')
-      } else if (res.needs_totp) {
-        setStep('totp')
-      } else if (res.needs_email_otp) {
-        setStep('email_otp')
-      } else if (res.needs_passkey) {
-        setStep('passkey')
+      } else if (res.needs_totp || res.needs_email_otp || res.needs_passkey) {
+        if (res.available_methods && res.available_methods.length > 1) {
+          setAvailableMethods(res.available_methods)
+          setStep('mfa_select')
+        } else if (res.needs_totp) {
+          setStep('totp')
+        } else if (res.needs_email_otp) {
+          setStep('email_otp')
+        } else if (res.needs_passkey) {
+          setStep('passkey')
+        }
       } else if (res.ok) {
         completeLogin(res.username ?? email)
       }
@@ -509,6 +516,60 @@ export function LoginForm() {
             <p className="text-xs font-mono text-terminal-fg/40">
               After clicking the link you'll be prompted to set up a new verification method on your next login.
             </p>
+            {backButton()}
+          </div>
+        )}
+
+        {/* ── MFA Method Selector (returning user, multiple methods) ── */}
+        {step === 'mfa_select' && (
+          <div className="space-y-3">
+            <p className="text-sm font-mono text-terminal-fg/80 mb-1">Verify your identity</p>
+            <p className="text-[10px] font-mono text-terminal-fg/40 mb-4">Choose how you'd like to authenticate</p>
+            {availableMethods.includes('passkey') && (
+              <button type="button" onClick={() => setStep('passkey')}
+                className="w-full py-3 px-4 rounded border border-terminal-border hover:border-terminal-active bg-terminal-bg/50 hover:bg-terminal-bg text-left transition-colors flex items-center gap-3">
+                <span className="text-terminal-active flex-shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M6 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm-5 6s-1 0-1-1 1-4 6-4 6 3 6 4-1 1-1 1H1zm5-6a2 2 0 1 1 0-4 2 2 0 0 1 0 4z"/>
+                    <path d="M13.5 5a.5.5 0 0 1 .5.5V7h1.5a.5.5 0 0 1 0 1H14v1.5a.5.5 0 0 1-1 0V8h-1.5a.5.5 0 0 1 0-1H13V5.5a.5.5 0 0 1 .5-.5z"/>
+                  </svg>
+                </span>
+                <div>
+                  <div className="text-sm font-mono text-terminal-fg">Face ID / Fingerprint</div>
+                  <div className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Use your registered passkey or security key</div>
+                </div>
+              </button>
+            )}
+            {availableMethods.includes('totp') && (
+              <button type="button" onClick={() => setStep('totp')}
+                className="w-full py-3 px-4 rounded border border-terminal-border hover:border-terminal-active bg-terminal-bg/50 hover:bg-terminal-bg text-left transition-colors flex items-center gap-3">
+                <span className="text-terminal-active flex-shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M8 3.5a.5.5 0 0 0-1 0V9a.5.5 0 0 0 .252.434l3.5 2a.5.5 0 0 0 .496-.868L8 8.71V3.5z"/>
+                    <path d="M8 16A8 8 0 1 0 8 0a8 8 0 0 0 0 16zm7-8A7 7 0 1 1 1 8a7 7 0 0 1 14 0z"/>
+                  </svg>
+                </span>
+                <div>
+                  <div className="text-sm font-mono text-terminal-fg">Authenticator App</div>
+                  <div className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Get a code from Google Authenticator, Authy, or 1Password</div>
+                </div>
+              </button>
+            )}
+            {availableMethods.includes('email_otp') && (
+              <button type="button" onClick={() => setStep('email_otp')}
+                className="w-full py-3 px-4 rounded border border-terminal-border hover:border-terminal-active bg-terminal-bg/50 hover:bg-terminal-bg text-left transition-colors flex items-center gap-3">
+                <span className="text-terminal-active flex-shrink-0">
+                  <svg width="20" height="20" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+                    <path d="M0 4a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V4zm2-1a1 1 0 0 0-1 1v.217l7 4.2 7-4.2V4a1 1 0 0 0-1-1H2zm13 2.383-4.758 2.855L15 11.114v-5.73zm-.034 6.878L9.271 8.82 8 9.583 6.728 8.82l-5.694 3.44A1 1 0 0 0 2 13h12a1 1 0 0 0 .966-.739zM1 11.114l4.758-2.876L1 5.383v5.73z"/>
+                  </svg>
+                </span>
+                <div>
+                  <div className="text-sm font-mono text-terminal-fg">Email Code</div>
+                  <div className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Send a 6-digit code to {email || 'your email'}</div>
+                </div>
+              </button>
+            )}
+            {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
             {backButton()}
           </div>
         )}

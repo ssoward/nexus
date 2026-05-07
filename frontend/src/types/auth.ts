@@ -20,6 +20,7 @@ export interface LoginResponse {
   needs_mfa_setup?: boolean
   needs_email_otp?: boolean
   needs_passkey?: boolean
+  available_methods?: string[]
 }
 
 export interface PasskeyCredential {
