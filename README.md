@@ -43,6 +43,7 @@ Typical uses:
 - **Passkey / WebAuthn (FIDO2)** — `py-webauthn` server + `@simplewebauthn/browser`; multiple keys per account; add, rename, and remove from Settings; user-verification enforced at both registration and authentication
 - **TOTP two-factor** — Google Authenticator, Authy, 1Password; QR setup in the login flow; replay protection
 - **Email OTP** — 6-digit codes via SMTP, bcrypt-hashed, 10-minute TTL, single-use
+- **MFA method selector** — when multiple methods are registered, login presents an Okta-style card picker (Face ID / Authenticator / Email); only registered methods are shown
 - **Flexible MFA switching** — switch between TOTP, email code, or passkey from the login verification screen without re-registering
 - **Account recovery** — "Lost access to authenticator?" emails a single-use reset link (15-min TTL)
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required
@@ -544,7 +545,7 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 
 1. Register with email + password via `/api/auth/create-user`
 2. Choose MFA method (TOTP, Email OTP, or Passkey)
-3. On subsequent logins: POST credentials → server returns `needs_totp`, `needs_email_otp`, or `needs_passkey`
+3. On subsequent logins: POST credentials → server returns `needs_totp`/`needs_email_otp`/`needs_passkey` plus `available_methods[]`; if 2+ methods are registered, an Okta-style card picker is shown
 4. For passkey: browser prompts platform authenticator → assertion verified server-side
 5. For passwordless: `/passkey/login/begin` (no username) → browser presents any registered passkey → server identifies user from `credential_id`
 6. On success: httpOnly/Secure/SameSite=Strict JWT cookie set
