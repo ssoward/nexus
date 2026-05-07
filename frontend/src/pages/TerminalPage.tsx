@@ -322,6 +322,12 @@ export function TerminalPage() {
           )}
         </div>
       </div>
+      {/* ── Version badge ── */}
+      {!isMobile && (
+        <div className="fixed bottom-1 left-1 text-[9px] font-mono text-terminal-fg/20 pointer-events-none select-none z-50">
+          {__COMMIT__} · {__BUILD_TIME__}
+        </div>
+      )}
     </div>
   )
 }
