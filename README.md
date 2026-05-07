@@ -33,7 +33,8 @@ Typical uses:
 - **Native PTY sessions** — real OS processes (`os.openpty`), not containers; full color, Unicode, resize
 - **Up to 6 concurrent sessions** — configurable; each session persists until explicitly closed or the process exits
 - **Grid and Priority layouts** — switch between equal-size grid and an 80/20 split that auto-promotes the most active session
-- **Draggable resize handles** — drag the sidebar's right edge to resize it (160–520 px); drag the divider between the terminal area and an embedded page to adjust the split (20–80%); desktop only
+- **Draggable resize handles** — drag the sidebar's right edge to resize it (160–520 px); drag the divider between the terminal area and an embedded page to adjust the split (20–80%); desktop only; all sidebar tab panels (Sessions, Orchestrator, Pages) fill the resized width
+- **Build version badge** — commit hash and UTC build timestamp displayed in the bottom-left corner on desktop for instant deploy verification
 - **Multi-tab support** — open the same session in multiple browser tabs; all tabs share one PTY reader
 - **Session recovery** — on graceful shutdown, ring buffers are serialized; sessions replay buffered output on the next connect
 - **Visibility-triggered reconnect** — returning from a backgrounded tab automatically reconnects WebSocket and replays missed output
