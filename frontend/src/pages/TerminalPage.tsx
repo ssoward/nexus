@@ -60,13 +60,13 @@ export function TerminalPage() {
     document.body.style.userSelect = 'none'
     const onMove = (me: MouseEvent) => {
       const w = Math.max(160, Math.min(520, me.clientX))
-      // Direct DOM update so sidebar and main area move in the same frame
+      // Mutate DOM directly for same-frame layout; also update state so React
+      // reconciliation never overwrites our value on a concurrent re-render.
       if (sidebarRef.current) sidebarRef.current.style.width = `${w}px`
+      setSidebarWidth(w)
     }
-    const onUp = (me: MouseEvent) => {
+    const onUp = () => {
       document.body.style.userSelect = ''
-      // Sync React state so the value survives re-renders (e.g. sidebar toggle)
-      setSidebarWidth(Math.max(160, Math.min(520, me.clientX)))
       window.removeEventListener('mousemove', onMove)
       window.removeEventListener('mouseup', onUp)
     }
@@ -114,7 +114,7 @@ export function TerminalPage() {
           'shrink-0 flex flex-col overflow-hidden',
           isMobile
             ? `fixed inset-0 z-40 bg-[#161b22] transition-all duration-200 ${sidebarOpen ? 'w-full' : 'w-0'}`
-            : `bg-[#161b22] ${sidebarOpen ? '' : 'w-0'}`,
+            : `bg-[#161b22] border-r border-terminal-border ${sidebarOpen ? '' : 'w-0 border-r-0'}`,
         ].join(' ')}
         style={!isMobile && sidebarOpen ? { width: sidebarWidth } : undefined}
       >
