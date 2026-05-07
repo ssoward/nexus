@@ -114,7 +114,7 @@ export function TerminalPage() {
           'shrink-0 flex flex-col overflow-hidden',
           isMobile
             ? `fixed inset-0 z-40 bg-[#161b22] transition-all duration-200 ${sidebarOpen ? 'w-full' : 'w-0'}`
-            : `bg-[#161b22] border-r border-terminal-border ${sidebarOpen ? '' : 'w-0 border-r-0'}`,
+            : `bg-[#161b22] ${sidebarOpen ? '' : 'w-0'}`,
         ].join(' ')}
         style={!isMobile && sidebarOpen ? { width: sidebarWidth } : undefined}
       >

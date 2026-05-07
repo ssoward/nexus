@@ -108,7 +108,7 @@ export function OrchestratorPanel({ onClose }: Props) {
       : 'px-2 py-1 text-[10px] font-mono rounded border border-terminal-border text-terminal-fg/50 hover:bg-terminal-border'
 
   return (
-    <aside className="w-64 h-full flex flex-col bg-[#0d1117] border-r border-terminal-border">
+    <aside className="w-full h-full flex flex-col bg-[#0d1117] border-r border-terminal-border">
       <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-border shrink-0">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-mono text-terminal-fg/60 uppercase tracking-wider">Orchestrator</span>

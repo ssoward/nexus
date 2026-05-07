@@ -49,7 +49,7 @@ export function PageList({ onClose, onSelectPage, activePage }: Props) {
   }
 
   return (
-    <aside className="w-64 h-full flex flex-col bg-[#0d1117] border-r border-terminal-border">
+    <aside className="w-full h-full flex flex-col bg-[#0d1117] border-r border-terminal-border">
       <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-border shrink-0">
         <span className="text-xs font-mono text-terminal-fg/60 uppercase tracking-wider">Pages</span>
         <div className="flex items-center gap-2">
