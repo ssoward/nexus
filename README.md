@@ -223,6 +223,33 @@ colima start
 docker compose up -d
 ```
 
+The compose file's host port is parameterized via `CADDY_HOST_PORT` (defaults to `443`). On Linux with native Docker, leave it at the default.
+
+#### 5a. macOS + colima: publish Caddy on 8443 and front it with `tailscale serve`
+
+colima on macOS does not reliably forward privileged ports (`80`/`443`) from the VM to the host, and Mac App Store Tailscale uses userspace networking — traffic to the tailnet IP doesn't automatically reach host sockets. Both problems are solved with one workaround: publish Caddy on a high port and let `tailscale serve` forward `:443` to it.
+
+1. In `.env`, set:
+   ```
+   CADDY_HOST_PORT=8443
+   ```
+2. Recreate Caddy so the new port mapping takes effect:
+   ```bash
+   docker compose up -d --force-recreate caddy
+   ```
+3. Configure `tailscale serve` as a TCP passthrough (Caddy keeps doing TLS):
+   ```bash
+   # path differs if installed from the Mac App Store vs Homebrew
+   TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+   "$TS" funnel --https=443 off          # ensure Funnel is off (tailnet-only)
+   "$TS" serve reset
+   "$TS" serve --bg --tcp=443 tcp://localhost:8443
+   "$TS" serve status                    # verify
+   ```
+4. Sanity check: `curl -ks https://<your-machine>.tail<id>.ts.net/api/health` should return the backend health JSON.
+
+To revert (publish on 443 again): unset `CADDY_HOST_PORT` (or set it to `443`) in `.env`, run `docker compose up -d --force-recreate caddy`, and `tailscale serve reset`.
+
 ### 6. Start backend
 
 ```bash

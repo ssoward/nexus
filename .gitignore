@@ -23,6 +23,9 @@ recovery.json
 node_modules/
 dist/
 
+# Live-served static copy of frontend/dist (regenerated on every deploy)
+static/
+
 # macOS
 .DS_Store
 

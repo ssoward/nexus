@@ -4,8 +4,10 @@ services:
   caddy:
     image: caddy:2.8-alpine
     ports:
-      - "80:80"
-      - "443:443"
+      # Defaults to 443; on hosts that can't reliably bind privileged ports
+      # (e.g. macOS + colima), set CADDY_HOST_PORT=8443 in .env and front it
+      # with: tailscale serve --tcp=443 tcp://localhost:8443
+      - "${CADDY_HOST_PORT:-443}:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./frontend/dist:/srv:ro
