@@ -26,8 +26,11 @@ extension CommandRunning {
 public struct CommandRunner: CommandRunning {
     public init() {}
 
-    /// stderr is discarded. NOTE: stdout is read only after the process exits/terminates,
-    /// so a command writing more than the OS pipe buffer (~64KB) before exiting could
+    /// stdout and stderr are merged into one stream. Several probed tools write their
+    /// status to stderr (notably `colima status`), so capturing both is required for
+    /// correct detection; the parsers are tolerant of the extra lines.
+    /// NOTE: the merged stream is read only after the process exits/terminates, so a
+    /// command writing more than the OS pipe buffer (~64KB) before exiting could
     /// deadlock. Acceptable here — all callers are short-lived probes with tiny output.
     public func run(_ argv: [String], cwd: String?, timeout: TimeInterval) throws -> CommandResult {
         precondition(!argv.isEmpty)
@@ -37,7 +40,7 @@ public struct CommandRunner: CommandRunning {
         if let cwd { proc.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         let pipe = Pipe()
         proc.standardOutput = pipe
-        proc.standardError = Pipe()   // discard stderr noise
+        proc.standardError = pipe   // merge stderr (e.g. `colima status` writes there)
         try proc.run()
 
         let deadline = Date().addingTimeInterval(timeout)
