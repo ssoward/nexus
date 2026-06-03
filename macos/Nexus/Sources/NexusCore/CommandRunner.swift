@@ -3,12 +3,24 @@ import Foundation
 public struct CommandResult: Sendable {
     public let stdout: String
     public let exitCode: Int32
+
+    public init(stdout: String, exitCode: Int32) {
+        self.stdout = stdout
+        self.exitCode = exitCode
+    }
 }
 
 public protocol CommandRunning: Sendable {
     /// Runs argv[0] with the rest as arguments. Returns stdout and exit code.
     /// Throws on launch failure. `timeout` seconds enforced via termination.
-    func run(_ argv: [String], timeout: TimeInterval) throws -> CommandResult
+    /// `cwd` sets the working directory; nil leaves it inherited.
+    func run(_ argv: [String], cwd: String?, timeout: TimeInterval) throws -> CommandResult
+}
+
+extension CommandRunning {
+    public func run(_ argv: [String], timeout: TimeInterval) throws -> CommandResult {
+        try run(argv, cwd: nil, timeout: timeout)
+    }
 }
 
 public struct CommandRunner: CommandRunning {
@@ -17,11 +29,12 @@ public struct CommandRunner: CommandRunning {
     /// stderr is discarded. NOTE: stdout is read only after the process exits/terminates,
     /// so a command writing more than the OS pipe buffer (~64KB) before exiting could
     /// deadlock. Acceptable here — all callers are short-lived probes with tiny output.
-    public func run(_ argv: [String], timeout: TimeInterval) throws -> CommandResult {
+    public func run(_ argv: [String], cwd: String?, timeout: TimeInterval) throws -> CommandResult {
         precondition(!argv.isEmpty)
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: argv[0])
         proc.arguments = Array(argv.dropFirst())
+        if let cwd { proc.currentDirectoryURL = URL(fileURLWithPath: cwd) }
         let pipe = Pipe()
         proc.standardOutput = pipe
         proc.standardError = Pipe()   // discard stderr noise

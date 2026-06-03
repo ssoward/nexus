@@ -1,6 +1,18 @@
 import XCTest
 @testable import NexusCore
 
+// Class (not struct) so it can record the last cwd it was called with for assertions.
+// @unchecked Sendable is fine: used synchronously from a single test thread.
+final class StubRunner: CommandRunning, @unchecked Sendable {
+    let responses: [String: CommandResult]   // keyed by argv[0]
+    private(set) var lastCwd: String?
+    init(responses: [String: CommandResult]) { self.responses = responses }
+    func run(_ argv: [String], cwd: String?, timeout: TimeInterval) throws -> CommandResult {
+        lastCwd = cwd
+        return responses[argv[0]] ?? CommandResult(stdout: "", exitCode: 127)
+    }
+}
+
 final class StatusParsersTests: XCTestCase {
     func test_worst_returns_down_when_any_down() {
         XCTAssertEqual(ComponentState.worst([.up, .starting, .down]), .down)
@@ -63,5 +75,28 @@ final class StatusParsersTests: XCTestCase {
 
     func test_backend_non_200_is_starting() {
         XCTAssertEqual(StatusParsers.backend(httpStatus: 503).state, .starting)
+    }
+
+    func test_probe_colima_up() throws {
+        let runner = StubRunner(responses: [
+            "/opt/homebrew/bin/colima": CommandResult(stdout: "colima is running", exitCode: 0)
+        ])
+        let probes = Probes(runner: runner,
+                            paths: ToolPaths(colima: "/opt/homebrew/bin/colima",
+                                             docker: "/d", tailscale: "/t", repoPath: "/r"),
+                            caddyHostPort: "8443")
+        XCTAssertEqual(probes.colima().state, .up)
+    }
+
+    func test_probe_caddy_passes_repo_path_as_cwd() throws {
+        let runner = StubRunner(responses: [
+            "/d": CommandResult(stdout: #"{"Service":"caddy","State":"running"}"#, exitCode: 0)
+        ])
+        let probes = Probes(runner: runner,
+                            paths: ToolPaths(colima: "/c", docker: "/d",
+                                             tailscale: "/t", repoPath: "/repo"),
+                            caddyHostPort: "8443")
+        XCTAssertEqual(probes.caddy().state, .up)
+        XCTAssertEqual(runner.lastCwd, "/repo")
     }
 }
