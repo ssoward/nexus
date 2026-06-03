@@ -310,7 +310,7 @@ bash macos/install.sh
 | **Colored dots** | Live status — colima / Caddy / Tailscale / backend, polled every 5 s |
 | **Start All** | Starts colima → Caddy → tailscale serve route → backend |
 | **Stop All** | Stops the backend and Caddy; intentionally **leaves colima and the tailscale serve route running** |
-| **Restart** | Stops then starts the full stack |
+| **Restart** | Restarts the backend stack agent (`kickstart -k`); colima and the tailscale route stay up |
 | **Open in Browser** | Opens `hostUrl` from `~/.nexus/menubar.json` in the default browser |
 | **View Logs** | Opens `~/.nexus/logs/` in Finder |
 | **Launch at Login** | Toggles the `com.nexus.menubar` LaunchAgent (the stack agent is unaffected) |

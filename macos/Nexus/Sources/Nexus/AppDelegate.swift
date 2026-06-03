@@ -67,7 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menu.addItem(action("Open in Browser", #selector(openBrowser)))
         menu.addItem(action("View Logs", #selector(viewLogs)))
         let loginItem = action("Launch at Login", #selector(toggleLogin))
-        loginItem.state = loginAgentInstalled() ? .on : .off
+        loginItem.state = agentLoaded(menubarLabel) ? .on : .off
         menu.addItem(loginItem)
         menu.addItem(.separator())
         menu.addItem(action("Quit", #selector(quit)))
@@ -87,7 +87,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func startAll() {
-        launchctl(LaunchctlControl.start(label: stackLabel, uid: LaunchctlControl.currentUID))
+        let uid = LaunchctlControl.currentUID
+        // Stop All boots the KeepAlive agent OUT of launchd, so a plain kickstart
+        // would fail ("service not loaded"). Bootstrap it if it's gone, else kickstart.
+        if agentLoaded(stackLabel) {
+            launchctl(LaunchctlControl.start(label: stackLabel, uid: uid))
+        } else {
+            launchctl(LaunchctlControl.bootstrap(plistPath: plistPath(stackLabel), uid: uid))
+        }
         refresh()
     }
     @objc private func stopAll() {
@@ -109,21 +116,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(fileURLWithPath: p))
     }
 
-    private var menubarPlistPath: String {
-        (("~/Library/LaunchAgents/com.nexus.menubar.plist") as NSString).expandingTildeInPath
+    private func plistPath(_ label: String) -> String {
+        (("~/Library/LaunchAgents/\(label).plist") as NSString).expandingTildeInPath
     }
-    private func loginAgentInstalled() -> Bool {
+    /// True if the given LaunchAgent label is currently bootstrapped in the GUI domain.
+    private func agentLoaded(_ label: String) -> Bool {
         let r = try? runner.run(
-            ["/bin/launchctl", "print", "gui/\(LaunchctlControl.currentUID)/\(menubarLabel)"],
+            ["/bin/launchctl", "print", "gui/\(LaunchctlControl.currentUID)/\(label)"],
             timeout: 2)   // launchctl print is normally <50ms; 2s is an ample upper bound
         return (r?.exitCode ?? 1) == 0
     }
     @objc private func toggleLogin() {
         let uid = LaunchctlControl.currentUID
-        if loginAgentInstalled() {
+        if agentLoaded(menubarLabel) {
             launchctl(LaunchctlControl.stop(label: menubarLabel, uid: uid))
         } else {
-            launchctl(LaunchctlControl.bootstrap(plistPath: menubarPlistPath, uid: uid))
+            launchctl(LaunchctlControl.bootstrap(plistPath: plistPath(menubarLabel), uid: uid))
         }
         refresh()
     }

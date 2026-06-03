@@ -6,6 +6,10 @@ HOME_DIR="$HOME"
 LA_DIR="$HOME/Library/LaunchAgents"
 mkdir -p "$LA_DIR" "$HOME/.nexus/logs"
 
+# Load .env so CADDY_HOST_PORT (and friends) match what the launch path uses —
+# otherwise menubar.json's caddyHostPort could diverge from the runtime port.
+if [[ -f "$REPO_ROOT/.env" ]]; then set -a; source "$REPO_ROOT/.env"; set +a; fi
+
 # 1. Detect tool paths (tailscale only exists at the app bundle path).
 COLIMA_BIN="$(command -v colima || echo /opt/homebrew/bin/colima)"
 DOCKER_BIN="$(command -v docker || echo /Applications/Docker.app/Contents/Resources/bin/docker)"
