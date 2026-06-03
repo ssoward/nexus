@@ -273,6 +273,69 @@ export STATIC_DIR="$PWD/frontend/dist"
 # Backend serves the SPA directly at http://localhost:8000
 ```
 
+### Run as a macOS menu bar app (launch at login)
+
+A native macOS menu bar app manages the entire Nexus stack — status at a glance, one-click start/stop, and automatic bring-up at every login, no terminal required.
+
+#### Prerequisites
+
+| Tool | Notes |
+|------|-------|
+| Xcode Command Line Tools | Provides `swift` for building the app — `xcode-select --install` |
+| colima | Docker VM (`brew install colima`) |
+| Docker + Compose | Required by Caddy |
+| Tailscale | HTTPS on `.ts.net` |
+
+#### Install
+
+```bash
+bash macos/install.sh
+```
+
+`install.sh` runs once and sets everything up:
+
+- Runs `scripts/nexus-setup.sh` (creates venv, installs Python deps, builds frontend, copies `dist/` → `static/`)
+- Renders `scripts/nexus-paths.sh` from the template (tool paths for the launch script)
+- Builds and ad-hoc-signs `/Applications/Nexus.app` (the menu bar app)
+- Writes `~/Library/LaunchAgents/com.nexus.stack.plist` — starts the Nexus stack at login and keeps the backend alive (KeepAlive + auto-restart on crash)
+- Writes `~/Library/LaunchAgents/com.nexus.menubar.plist` — starts the menu bar app at login (toggled by "Launch at Login")
+- Writes `~/.nexus/menubar.json` with `hostUrl` derived from `config.yml`
+- Logs land in `~/.nexus/logs/`
+- Bootstraps the stack agent immediately so the backend starts without a re-login
+
+#### Menu actions
+
+| Action | What it does |
+|--------|-------------|
+| **Colored dots** | Live status — colima / Caddy / Tailscale / backend, polled every 5 s |
+| **Start All** | Starts colima → Caddy → tailscale serve route → backend |
+| **Stop All** | Stops the backend and Caddy; intentionally **leaves colima and the tailscale serve route running** |
+| **Restart** | Restarts the backend stack agent (`kickstart -k`); colima and the tailscale route stay up |
+| **Open in Browser** | Opens `hostUrl` from `~/.nexus/menubar.json` in the default browser |
+| **View Logs** | Opens `~/.nexus/logs/` in Finder |
+| **Launch at Login** | Toggles the `com.nexus.menubar` LaunchAgent (the stack agent is unaffected) |
+| **Quit** | Quits the menu bar app; the `com.nexus.stack` agent continues running |
+
+> **Stack agent vs. menu bar app:** The `com.nexus.stack` LaunchAgent (KeepAlive) is what actually starts the Nexus stack at login and restarts the backend on crash. Quitting the menu bar app does **not** stop the running stack.
+
+#### After dependency changes
+
+Re-run the setup script whenever Python or Node dependencies change (it is intentionally kept out of the fast launch loop):
+
+```bash
+bash scripts/nexus-setup.sh
+```
+
+#### Uninstall
+
+```bash
+bash macos/uninstall.sh
+```
+
+Uninstalls both LaunchAgents, removes their plists from `~/Library/LaunchAgents/`, and deletes `/Applications/Nexus.app`. Your `~/.nexus/` data (database, logs, config) is left intact.
+
+> **Note:** The stack launches at **login** (user-session LaunchAgent), not before login, because the backend spawns PTY processes that require the user's environment and dotfiles. A pre-login root LaunchDaemon is not used. M1/remote install is not yet covered — this iteration supports M5 (local) only.
+
 ### 7. Create your account
 
 ```bash

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+ "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.nexus.stack</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>@REPO_ROOT@/scripts/nexus-launch.sh</string>
+  </array>
+  <key>WorkingDirectory</key><string>@REPO_ROOT@</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>10</integer>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>@PATH@</string>
+    <key>HOME</key><string>@HOME@</string>
+  </dict>
+  <key>StandardOutPath</key><string>@HOME@/.nexus/logs/stack.out.log</string>
+  <key>StandardErrorPath</key><string>@HOME@/.nexus/logs/stack.err.log</string>
+</dict>
+</plist>
