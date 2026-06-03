@@ -33,3 +33,6 @@ static/
 .idea/
 .vscode/
 *.swp
+
+# SwiftPM build artifacts
+macos/Nexus/.build/
