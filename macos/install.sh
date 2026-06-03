@@ -50,7 +50,11 @@ PLIST
 codesign --force --deep -s - "$APP"
 
 # 5. Render + install plists.
-PATH_VALUE="/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$REPO_ROOT/backend/.venv/bin"
+# colima runs its own `docker` dependency check by PATH lookup (it does not honor
+# absolute paths), so the agent PATH must include the docker binary's directory —
+# Docker Desktop keeps it under /Applications, not in a standard bin dir.
+DOCKER_DIR="$(dirname "$DOCKER_BIN")"
+PATH_VALUE="/opt/homebrew/bin:$DOCKER_DIR:/usr/bin:/bin:/usr/sbin:/sbin:$REPO_ROOT/backend/.venv/bin"
 for label in stack menubar; do
   sed -e "s#@REPO_ROOT@#$REPO_ROOT#g" \
       -e "s#@HOME@#$HOME_DIR#g" \
