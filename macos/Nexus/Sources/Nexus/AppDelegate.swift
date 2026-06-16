@@ -52,6 +52,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let overall = ComponentState.worst(statuses.map(\.state))
         statusItem.button?.title = dot(overall)
 
+        // Diagnostic: when the icon is not green, record each component's state so
+        // "the icon is red" can be traced to a specific probe via menubar.err.log.
+        // Quiet when everything is healthy to avoid spamming the log every 5s.
+        if overall != .up {
+            let summary = statuses.map { "\($0.name)=\($0.state.rawValue)(\($0.detail))" }
+                .joined(separator: " ")
+            FileHandle.standardError.write(Data("[\(Date())] overall=\(overall.rawValue) | \(summary)\n".utf8))
+        }
+
         let menu = NSMenu()
         for s in statuses {
             let item = NSMenuItem(title: "\(dot(s.state))  \(s.name): \(s.detail)",

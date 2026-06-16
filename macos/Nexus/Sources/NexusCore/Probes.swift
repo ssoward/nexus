@@ -35,7 +35,14 @@ public struct Probes: Sendable {
     }
 
     public func tailscale() -> ComponentStatus {
-        let r = (try? runner.run([paths.tailscale, "serve", "status"], timeout: 4))
+        // The Mac App Store Tailscale CLI is a thin client that talks to the GUI app.
+        // When spawned directly (posix_spawn) from this background launchd agent it
+        // fails with "The Tailscale GUI failed to start (CLIError error 3)" and prints
+        // no route — so the icon goes red even though tailscale is up. Routing the call
+        // through a login shell restores the launch context the CLI needs, after which
+        // `serve status` reports the route correctly. See README troubleshooting.
+        let cmd = "'\(paths.tailscale)' serve status"
+        let r = (try? runner.run(["/bin/bash", "-lc", cmd], timeout: 6))
             ?? CommandResult(stdout: "", exitCode: 127)
         return StatusParsers.tailscale(stdout: r.stdout, exitCode: r.exitCode,
                                        expectedTarget: caddyHostPort)
