@@ -307,7 +307,7 @@ bash macos/install.sh
 
 | Action | What it does |
 |--------|-------------|
-| **Colored dots** | Live status — colima / Caddy / Tailscale / backend, polled every 5 s |
+| **Colored dots** | Live status — colima / Caddy / Tailscale / backend, polled every 5 s. The menu bar icon shows the worst state: 🟢 up · 🟡 starting · ⚪️ unknown · 🔴 down. Whenever the icon is **not** green, each component's state is appended to `~/.nexus/logs/menubar.err.log` so the offending probe is easy to find (the log stays quiet while everything is healthy). |
 | **Start All** | Starts colima → Caddy → tailscale serve route → backend |
 | **Stop All** | Stops the backend and Caddy; intentionally **leaves colima and the tailscale serve route running** |
 | **Restart** | Restarts the backend stack agent (`kickstart -k`); colima and the tailscale route stay up |
@@ -345,7 +345,7 @@ Uninstalls both LaunchAgents, removes their plists from `~/Library/LaunchAgents/
 | **Stack status** | `launchctl print gui/$(id -u)/com.nexus.stack` (look for `state` and `pid`). |
 | **Verify reachability** | `curl -fsS http://127.0.0.1:8000/api/health` (local) and `curl -ks https://<host>/api/health` (via Tailscale). |
 
-Logs live in `~/.nexus/logs/` (`stack.out.log` / `stack.err.log` for the backend stack, `menubar.*.log` for the app). The menu bar app is **single-instance** — opening it while a copy is already running (or while the login agent has launched one) is a no-op, so you never get duplicate icons.
+Logs live in `~/.nexus/logs/` (`stack.out.log` / `stack.err.log` for the backend stack, `menubar.*.log` for the app — `menubar.err.log` records per-component state whenever the icon isn't green). The menu bar app is **single-instance** — opening it while a copy is already running (or while the login agent has launched one) is a no-op, so you never get duplicate icons.
 
 > **Note:** The stack launches at **login** (user-session LaunchAgent), not before login, because the backend spawns PTY processes that require the user's environment and dotfiles. A pre-login root LaunchDaemon is not used. M1/remote install is not yet covered — this iteration supports M5 (local) only.
 
