@@ -340,6 +340,7 @@ Uninstalls both LaunchAgents, removes their plists from `~/Library/LaunchAgents/
 |---------|-------------|
 | **No icon in the menu bar** | The app hasn't been launched yet (`install.sh` only loads the stack agent). Open `/Applications/Nexus.app`, or enable **Launch at Login**. On notched MacBooks the icon can hide behind the notch when the bar is crowded. |
 | **A dot is white (`⚪️`)** | That component's status couldn't be read (probe returned *unknown*), distinct from red (down). Check the component manually and see the logs below. |
+| **Icon is red but the stack is actually healthy** | Almost always the **colima** probe: `colima status` does a `PATH` lookup for its `limactl`/`docker` dependencies, so the `com.nexus.menubar` agent's `PATH` must include `/opt/homebrew/bin`. Re-run `bash macos/install.sh` (it renders the plist with the correct `PATH`) and re-login, or verify with `launchctl print gui/$(id -u)/com.nexus.menubar \| grep -A3 EnvironmentVariables`. |
 | **Backend won't start / crash-loops** | `tail -f ~/.nexus/logs/stack.err.log`. Common causes: `colima` can't find `docker` on the agent `PATH`, or the venv/`static/` aren't built (run `scripts/nexus-setup.sh`). |
 | **Stack status** | `launchctl print gui/$(id -u)/com.nexus.stack` (look for `state` and `pid`). |
 | **Verify reachability** | `curl -fsS http://127.0.0.1:8000/api/health` (local) and `curl -ks https://<host>/api/health` (via Tailscale). |

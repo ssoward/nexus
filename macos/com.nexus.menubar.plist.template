@@ -10,6 +10,15 @@
   </array>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><false/>
+  <!-- The menu bar app probes `colima status`, which does a PATH lookup for its
+       `limactl`/`docker` dependencies (it does not honor absolute paths). Without
+       /opt/homebrew/bin on PATH the colima probe exits non-zero and the icon shows
+       red even when the stack is healthy. Mirror the stack agent's PATH. -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key><string>@PATH@</string>
+    <key>HOME</key><string>@HOME@</string>
+  </dict>
   <key>StandardOutPath</key><string>@HOME@/.nexus/logs/menubar.out.log</string>
   <key>StandardErrorPath</key><string>@HOME@/.nexus/logs/menubar.err.log</string>
 </dict>

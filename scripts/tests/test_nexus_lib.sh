@@ -55,4 +55,22 @@ tailscale_route_present; assert_eq "0" "$?" "tailscale route present"
 TS_OUT="No serve config"; TS_RC=0
 tailscale_route_present; assert_eq "1" "$?" "tailscale route absent"
 
+# ── LaunchAgent plist templates must set PATH ────────────────────────────────
+# The menu bar app probes `colima status`, which does a PATH lookup for its
+# limactl/docker dependencies. If the menubar agent's PATH lacks /opt/homebrew/bin
+# the colima probe exits non-zero and the icon shows red even when the stack is
+# healthy. Both agents must therefore render an EnvironmentVariables PATH that
+# includes /opt/homebrew/bin. Render exactly as macos/install.sh does.
+PATH_VALUE="/opt/homebrew/bin:/Applications/Docker.app/Contents/Resources/bin:/usr/bin:/bin:/usr/sbin:/sbin:$REPO_ROOT/backend/.venv/bin"
+for label in stack menubar; do
+  rendered="$(sed -e "s#@REPO_ROOT@#$REPO_ROOT#g" -e "s#@HOME@#$HOME#g" -e "s#@PATH@#$PATH_VALUE#g" \
+              "$REPO_ROOT/macos/com.nexus.$label.plist.template")"
+  case "$rendered" in
+    *"<key>EnvironmentVariables</key>"*"/opt/homebrew/bin"*)
+      echo "ok: $label plist sets PATH with /opt/homebrew/bin" ;;
+    *)
+      echo "FAIL: $label plist template is missing EnvironmentVariables PATH with /opt/homebrew/bin"; fail=1 ;;
+  esac
+done
+
 exit $fail
