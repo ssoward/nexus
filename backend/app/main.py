@@ -35,7 +35,7 @@ _tls_task: asyncio.Task | None = None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global _watchdog_task
+    global _watchdog_task, _tls_task
 
     s = get_settings()
     configure_logging(s.log_level, getattr(s, 'log_format', 'text'))
