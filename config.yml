@@ -27,6 +27,6 @@ presets:
     description: Python 3 REPL
 
 webauthn:
-  rp_id: ssowardm5.tail040188.ts.net
+  rp_id: ssowardm1.tail040188.ts.net
   rp_name: Nexus
-  origin: https://ssowardm5.tail040188.ts.net
+  origin: https://ssowardm1.tail040188.ts.net

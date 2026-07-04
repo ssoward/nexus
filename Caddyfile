@@ -3,8 +3,8 @@
   auto_https off
 }
 
-ssowardm5.tail040188.ts.net {
-  tls /certs/ssowardm5.tail040188.ts.net.crt /certs/ssowardm5.tail040188.ts.net.key
+ssowardm1.tail040188.ts.net {
+  tls /certs/ssowardm1.tail040188.ts.net.crt /certs/ssowardm1.tail040188.ts.net.key
 
   # MED-3: Strip query strings from access logs (WS tokens appear in query params)
   log {
