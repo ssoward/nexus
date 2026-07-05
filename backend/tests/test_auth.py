@@ -270,6 +270,98 @@ class TestBootstrapTotp:
 
 
 # ---------------------------------------------------------------------------
+# POST /api/auth/switch-mfa  (C1 — MFA downgrade must be impossible)
+# ---------------------------------------------------------------------------
+
+class TestSwitchMfa:
+    async def test_cannot_provision_new_totp_for_passkey_account(self, client: AsyncClient, setup_db):
+        """With only the password, switching to TOTP must NOT mint a new secret
+        for an account that has no authenticator (would bypass a passkey factor)."""
+        # A user whose MFA is a passkey and who has no TOTP secret.
+        await setup_db.execute(
+            "INSERT INTO users (username, hashed_password, mfa_method) VALUES (?, ?, 'passkey')",
+            ("pkuser", hash_password("TestPassword1!Secure")),
+        )
+        r = await client.post(
+            "/api/auth/switch-mfa",
+            data={"username": "pkuser", "password": "TestPassword1!Secure", "method": "totp"},
+        )
+        assert r.status_code == 409
+        body = r.json()
+        assert "provisioning_uri" not in body
+        assert "qr_code_base64" not in body
+        # mfa_method must be unchanged — no downgrade happened.
+        row = await setup_db.fetchone(
+            "SELECT mfa_method, encrypted_totp_secret FROM users WHERE username = ?", ("pkuser",)
+        )
+        assert row["mfa_method"] == "passkey"
+        assert row["encrypted_totp_secret"] is None
+
+    async def test_switch_to_totp_allowed_when_already_enrolled(self, client: AsyncClient, setup_db):
+        """Switching to TOTP is fine when the user already has an authenticator."""
+        await _add_totp("bothuser", "TestPassword1!Secure")
+        await setup_db.execute(
+            "UPDATE users SET mfa_method = 'email_otp' WHERE username = ?", ("bothuser",)
+        )
+        r = await client.post(
+            "/api/auth/switch-mfa",
+            data={"username": "bothuser", "password": "TestPassword1!Secure", "method": "totp"},
+        )
+        assert r.status_code == 200
+        assert r.json()["method"] == "totp"
+        row = await setup_db.fetchone(
+            "SELECT mfa_method FROM users WHERE username = ?", ("bothuser",)
+        )
+        assert row["mfa_method"] == "totp"
+
+    async def test_wrong_password_rejected(self, client: AsyncClient, setup_db):
+        await _add_totp("swuser", "TestPassword1!Secure")
+        r = await client.post(
+            "/api/auth/switch-mfa",
+            data={"username": "swuser", "password": "WrongPassword9!", "method": "totp"},
+        )
+        assert r.status_code == 401
+
+
+class TestBootstrapTotpGuard:
+    async def test_refused_for_passkey_account(self, client: AsyncClient, setup_db):
+        """bootstrap-totp must refuse when the account already has MFA (passkey),
+        even though it has no TOTP secret."""
+        await setup_db.execute(
+            "INSERT INTO users (username, hashed_password, mfa_method) VALUES (?, ?, 'passkey')",
+            ("pkonly", hash_password("TestPassword1!Secure")),
+        )
+        r = await client.post(
+            "/api/auth/bootstrap-totp",
+            data={"username": "pkonly", "password": "TestPassword1!Secure"},
+        )
+        assert r.status_code == 401
+        row = await setup_db.fetchone(
+            "SELECT encrypted_totp_secret FROM users WHERE username = ?", ("pkonly",)
+        )
+        assert row["encrypted_totp_secret"] is None
+
+
+class TestTokenInvalidation:
+    """H2 — password change stamps tokens_valid_after, evicting older tokens."""
+
+    async def test_stale_token_rejected_after_password_change(self, client: AsyncClient, setup_db, test_user):
+        from datetime import datetime, timezone
+        from app.services.token_service import create_access_token
+
+        # An older token (issued 'now') plus a tokens_valid_after in the near future.
+        old_token = create_access_token(test_user["id"])
+        future = (datetime.now(timezone.utc).timestamp() + 5)
+        from datetime import datetime as _dt
+        await setup_db.execute(
+            "UPDATE users SET tokens_valid_after = ? WHERE id = ?",
+            (_dt.fromtimestamp(future, tz=timezone.utc).isoformat(), test_user["id"]),
+        )
+        r = await client.get("/api/auth/me", cookies={"access_token": old_token})
+        assert r.status_code == 401
+
+
+# ---------------------------------------------------------------------------
 # Security hardening tests
 # ---------------------------------------------------------------------------
 

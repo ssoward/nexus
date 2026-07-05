@@ -40,6 +40,7 @@ _SCHEMA = [
         last_totp_code         TEXT,
         last_totp_at           TEXT,
         mfa_method             TEXT DEFAULT NULL,
+        tokens_valid_after     TEXT,
         created_at             TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
     """CREATE TABLE IF NOT EXISTS sessions (

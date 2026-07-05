@@ -13,11 +13,15 @@ def _validate_no_secret_keys(obj: Any, path: str = "") -> None:
     if isinstance(obj, dict):
         for k, v in obj.items():
             key_lower = k.lower()
-            if any(s in key_lower for s in ["secret", "password", "token", "apikey", "api_key"]):
+            if any(s in key_lower for s in ["secret", "password", "token", "apikey", "api_key", "credential", "private", "passwd", "pwd"]):
                 raise ValueError(
                     f"Secret-looking key '{path}.{k}' found in config.yml — use env vars instead"
                 )
             _validate_no_secret_keys(v, f"{path}.{k}")
+    elif isinstance(obj, list):
+        # Recurse into lists too (e.g. presets:) so secrets can't hide in list entries.
+        for i, item in enumerate(obj):
+            _validate_no_secret_keys(item, f"{path}[{i}]")
 
 
 def _load_yaml_config(path: str) -> dict:

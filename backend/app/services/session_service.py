@@ -1,3 +1,4 @@
+import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
@@ -8,6 +9,31 @@ from app.models.session import Session, SessionCreate, SessionStatus
 from app.models.audit import AuditAction
 from app.services import pty_service, pty_broadcaster, metrics
 from app.config import get_settings
+
+
+class SessionLimitError(Exception):
+    """Raised when creating/restarting a session would exceed max_panes."""
+
+
+# Serializes the count-then-reserve step so concurrent create/restart requests
+# cannot each pass the cap check before any of them has claimed a slot (TOCTOU).
+_slot_lock = asyncio.Lock()
+
+# Statuses that occupy one of the max_panes slots.
+_ACTIVE_STATUSES = (
+    SessionStatus.RUNNING.value,
+    SessionStatus.PENDING.value,
+    SessionStatus.RECOVERY_PENDING.value,
+)
+
+
+async def count_active_sessions(user_id: int) -> int:
+    placeholders = ",".join("?" for _ in _ACTIVE_STATUSES)
+    row = await db.fetchone(
+        f"SELECT COUNT(*) AS n FROM sessions WHERE user_id = ? AND status IN ({placeholders})",
+        (user_id, *_ACTIVE_STATUSES),
+    )
+    return row["n"] if row else 0
 
 
 def _now() -> str:
@@ -64,14 +90,19 @@ async def create_session(user_id: int, req: SessionCreate, ip: Optional[str]) ->
     session_id = str(uuid.uuid4())
     now = _now()
 
-    await db.execute(
-        """
-        INSERT INTO sessions (id, user_id, name, image, container_name, status, cols, rows, created_at, last_active_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (session_id, user_id, req.name, req.image, f"session-{session_id[:8]}",
-         SessionStatus.PENDING.value, req.cols, req.rows, now, now),
-    )
+    # Atomically enforce the cap and reserve the slot (insert as PENDING, which counts
+    # toward the cap) so N concurrent creates can't all slip past a stale count.
+    async with _slot_lock:
+        if await count_active_sessions(user_id) >= s.max_panes:
+            raise SessionLimitError(f"Maximum of {s.max_panes} concurrent sessions reached")
+        await db.execute(
+            """
+            INSERT INTO sessions (id, user_id, name, image, container_name, status, cols, rows, created_at, last_active_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (session_id, user_id, req.name, req.image, f"session-{session_id[:8]}",
+             SessionStatus.PENDING.value, req.cols, req.rows, now, now),
+        )
 
     try:
         cmd = preset["command"]

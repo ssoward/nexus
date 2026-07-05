@@ -75,7 +75,14 @@ async def _consume_challenge(user_id: int, purpose: str) -> bytes:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="Challenge expired. Restart the process.")
-    await db.execute("UPDATE webauthn_challenges SET used = 1 WHERE id = ?", (row["id"],))
+    # Atomic single-use consume — a concurrent replay can't also read used=0.
+    consumed = await db.fetchone(
+        "UPDATE webauthn_challenges SET used = 1 WHERE id = ? AND used = 0 RETURNING id",
+        (row["id"],),
+        commit=True,
+    )
+    if not consumed:
+        raise HTTPException(status_code=400, detail="No pending challenge. Restart the process.")
     return base64url_to_bytes(row["challenge"])
 
 
@@ -222,13 +229,14 @@ class AuthBeginRequest(BaseModel):
 async def authenticate_begin(request: Request, req: AuthBeginRequest):
     """Return assertion options for a user with registered passkeys."""
     row = await db.fetchone("SELECT id FROM users WHERE username = ?", (req.username,))
-    if not row:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
-
-    creds = await db.fetchall(
-        "SELECT credential_id, transports FROM passkey_credentials WHERE user_id = ?",
-        (row["id"],),
-    )
+    # Return an identical response whether the account is unknown or simply has no
+    # passkeys, so this endpoint can't be used to enumerate valid usernames.
+    creds = []
+    if row:
+        creds = await db.fetchall(
+            "SELECT credential_id, transports FROM passkey_credentials WHERE user_id = ?",
+            (row["id"],),
+        )
     if not creds:
         raise HTTPException(status_code=400, detail="No passkeys registered for this account")
 
@@ -479,7 +487,14 @@ async def _consume_passwordless_challenge(token: str) -> bytes:
         expires_at = expires_at.replace(tzinfo=timezone.utc)
     if datetime.now(timezone.utc) > expires_at:
         raise HTTPException(status_code=400, detail="Challenge expired. Try again.")
-    await db.execute("UPDATE webauthn_challenges SET used = 1 WHERE id = ?", (row["id"],))
+    # Atomic single-use consume — a concurrent replay can't also read used=0.
+    consumed = await db.fetchone(
+        "UPDATE webauthn_challenges SET used = 1 WHERE id = ? AND used = 0 RETURNING id",
+        (row["id"],),
+        commit=True,
+    )
+    if not consumed:
+        raise HTTPException(status_code=400, detail="No pending challenge. Try again.")
     return base64url_to_bytes(row["challenge"])
 
 

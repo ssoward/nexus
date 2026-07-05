@@ -626,11 +626,11 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 
 ## Database Schema
 
-Managed by Alembic (8 migrations in `backend/alembic/versions/`).
+Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 
 | Table | Purpose |
 |-------|---------|
-| `users` | Credentials, encrypted TOTP secret (AES-GCM), `mfa_method`, lockout state |
+| `users` | Credentials, encrypted TOTP secret (AES-GCM), `mfa_method`, lockout state, `tokens_valid_after` (per-user token cutoff) |
 | `sessions` | Session metadata: name, preset, status, cols/rows, workspace_id |
 | `ws_tokens` | Single-use WS auth tokens |
 | `revoked_tokens` | Logout-revoked JWT JTIs |
@@ -665,7 +665,11 @@ Managed by Alembic (8 migrations in `backend/alembic/versions/`).
 | Timing attacks | Unknown usernames always run bcrypt; `hmac.compare_digest` on verify result |
 | Rate limiting | slowapi: 10 login/min, 5/min TOTP setup and registration, 30/min refresh, 3/hour recovery |
 | Account lockout | 5 failures → 15-minute lockout in DB; enforced at every authenticated request |
-| JWT revocation | Logout inserts JTI into `revoked_tokens`; every request checks the revocation table |
+| JWT revocation | Logout inserts JTI into `revoked_tokens`; password change, email change, and MFA recovery stamp `users.tokens_valid_after`, rejecting **every** token issued earlier (evicts sessions on other devices, not just the current cookie) |
+| MFA integrity | Switching to an MFA method never provisions a *new* factor from a password-only request — `/switch-mfa` only selects among already-enrolled factors, and `/bootstrap-totp` refuses once any MFA is configured, so knowing the password alone can't downgrade a passkey/email-OTP account |
+| Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment, so a shell/agent/subprocess can't read signing keys |
+| Single-use tokens | WebAuthn challenges and email OTP codes are consumed with an atomic `UPDATE … WHERE used=0 RETURNING`, closing the read-then-update replay race |
+| Rate-limit IP trust | Forwarded-IP headers (`X-Real-IP`/`X-Forwarded-For`) are honored only when the direct peer is a loopback/private proxy; otherwise the limiter keys on the real peer so headers can't be spoofed to bypass limits |
 | WS token security | Single-use, 60-second TTL, bound to a specific session ID, atomic consume |
 | TOTP replay | Used codes recorded; reuse within 90 s rejected |
 | Security headers | CSP, HSTS with `preload`, X-Frame-Options, X-Content-Type-Options, Referrer-Policy |
@@ -772,7 +776,7 @@ nexus/
 │   │       ├── terminal_classifier.py # WORKING/WAITING/ASKING/BUSY detection
 │   │       ├── token_service.py     # JWT (PyJWT)
 │   │       └── tls_renewal.py       # Auto Tailscale cert renewal
-│   └── alembic/versions/      # 8 schema migrations
+│   └── alembic/versions/      # 9 schema migrations
 └── frontend/src/
     ├── components/
     │   ├── auth/              # LoginForm (multi-step MFA), TotpSetupModal

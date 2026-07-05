@@ -19,7 +19,7 @@ from app.crypto import encrypt_totp_secret, hash_password
 from app.database import db
 from app.dependencies import get_current_user
 from app.limiter import limiter
-from app.services.auth_service import authenticate_user, NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY
+from app.services.auth_service import authenticate_user, NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY, _DUMMY_HASH
 from app.services.token_service import create_access_token, create_ws_token, decode_access_token
 
 logger = logging.getLogger(__name__)
@@ -317,18 +317,24 @@ async def bootstrap_totp(
     """
     s = get_settings()
     row = await db.fetchone(
-        "SELECT id, hashed_password, encrypted_totp_secret FROM users WHERE username = ?",
+        "SELECT id, hashed_password, encrypted_totp_secret, mfa_method FROM users WHERE username = ?",
         (username,),
     )
+    from app.crypto import verify_password as vp
     if not row:
+        # Burn bcrypt time for unknown users so response latency doesn't enumerate accounts
+        vp(password, _DUMMY_HASH)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    from app.crypto import verify_password as vp
     if not vp(password, row["hashed_password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if row["encrypted_totp_secret"] is not None:
-        # Return 401 (same as bad credentials) to prevent user enumeration
+    # Bootstrap is strictly a first-time / post-recovery setup path: only for accounts
+    # with NO MFA at all. Refuse if the account already has any factor configured —
+    # otherwise an attacker with only the password could plant a TOTP secret on a
+    # passkey/email-OTP account (feeds the switch-mfa downgrade). Return 401 (same as
+    # bad credentials) to avoid enumeration.
+    if row["encrypted_totp_secret"] is not None or row["mfa_method"] is not None:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid credentials",
@@ -403,10 +409,11 @@ async def setup_mfa(
         "SELECT id, hashed_password, mfa_method FROM users WHERE username = ?",
         (username,),
     )
+    from app.crypto import verify_password as vp
     if not row:
+        vp(password, _DUMMY_HASH)  # constant-time: don't leak account existence
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    from app.crypto import verify_password as vp
     if not vp(password, row["hashed_password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
@@ -464,9 +471,10 @@ async def resend_otp(
         "SELECT id, hashed_password, mfa_method FROM users WHERE username = ?",
         (username,),
     )
-    if not row:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     from app.crypto import verify_password as vp
+    if not row:
+        vp(password, _DUMMY_HASH)  # constant-time: don't leak account existence
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not vp(password, row["hashed_password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if row["mfa_method"] != "email_otp":
@@ -497,33 +505,26 @@ async def switch_mfa(
         "SELECT id, hashed_password, mfa_method, encrypted_totp_secret FROM users WHERE username = ?",
         (username,),
     )
-    if not row:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     from app.crypto import verify_password as vp
+    if not row:
+        vp(password, _DUMMY_HASH)  # constant-time: don't leak account existence
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if not vp(password, row["hashed_password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    s = get_settings()
-
     if method == "totp":
+        # SECURITY (C1): switch-mfa authenticates with password only — it must NEVER
+        # provision a NEW second factor here, or an attacker who knows just the password
+        # could enroll their own TOTP secret and bypass a passkey/email-OTP factor.
+        # Only allow switching to TOTP if the user has ALREADY enrolled an authenticator
+        # (verified out-of-band via setup-totp, which requires the current factor/session).
         if not row["encrypted_totp_secret"]:
-            # Need to set up TOTP from scratch
-            secret = pyotp.random_base32()
-            encrypted = encrypt_totp_secret(secret, row["id"])
-            await db.execute(
-                "UPDATE users SET encrypted_totp_secret = ?, mfa_method = 'totp' WHERE id = ?",
-                (encrypted, row["id"]),
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="No authenticator app is set up. Add one from Settings while signed in.",
             )
-            totp = pyotp.TOTP(secret)
-            uri = totp.provisioning_uri(name=username, issuer_name=s.totp_issuer)
-            img = qrcode.make(uri)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            qr_b64 = base64.b64encode(buf.getvalue()).decode()
-            return {"method": "totp", "needs_setup": True, "provisioning_uri": uri, "qr_code_base64": qr_b64}
-        else:
-            await db.execute("UPDATE users SET mfa_method = 'totp' WHERE id = ?", (row["id"],))
-            return {"method": "totp", "needs_setup": False}
+        await db.execute("UPDATE users SET mfa_method = 'totp' WHERE id = ?", (row["id"],))
+        return {"method": "totp", "needs_setup": False}
 
     else:  # email_otp
         from app.services.otp_service import send_email_otp
@@ -599,10 +600,13 @@ async def reset_recovery(
         "UPDATE account_recovery_tokens SET used = 1 WHERE id = ?",
         (token_row["id"],),
     )
+    # Clear ALL second factors, not just TOTP — recovery is meant to force full
+    # MFA re-enrollment, so a previously-registered passkey must stop authenticating.
     await db.execute(
-        "UPDATE users SET encrypted_totp_secret = NULL, mfa_method = NULL WHERE id = ?",
-        (user_id,),
+        "UPDATE users SET encrypted_totp_secret = NULL, mfa_method = NULL, tokens_valid_after = ? WHERE id = ?",
+        (datetime.now(timezone.utc).isoformat(), user_id),
     )
+    await db.execute("DELETE FROM passkey_credentials WHERE user_id = ?", (user_id,))
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
         (user_id, "MFA_RESET_VIA_RECOVERY", request.client.host if request.client else "unknown"),
@@ -649,7 +653,12 @@ async def change_password(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Current password is incorrect")
 
     new_hash = hash_password(req.new_password)
-    await db.execute("UPDATE users SET hashed_password = ? WHERE id = ?", (new_hash, current_user["id"]))
+    # Invalidate every previously-issued token (incl. ones stolen on another device),
+    # not just the current cookie's jti — password rotation is the standard eviction path.
+    await db.execute(
+        "UPDATE users SET hashed_password = ?, tokens_valid_after = ? WHERE id = ?",
+        (new_hash, datetime.now(timezone.utc).isoformat(), current_user["id"]),
+    )
 
     # Revoke the current token so the old password can't be reused via cached JWT
     token = request.cookies.get(COOKIE_NAME)
@@ -713,7 +722,8 @@ async def change_email(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already in use")
 
     await db.execute(
-        "UPDATE users SET username = ? WHERE id = ?", (req.new_email, current_user["id"])
+        "UPDATE users SET username = ?, tokens_valid_after = ? WHERE id = ?",
+        (req.new_email, datetime.now(timezone.utc).isoformat(), current_user["id"]),
     )
 
     # Revoke the old token so any cached credential for the old email is invalidated

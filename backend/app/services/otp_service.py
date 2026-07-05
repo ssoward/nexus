@@ -77,8 +77,14 @@ async def verify_email_otp(user_id: int, code: str) -> bool:
         if now > expires_at:
             continue
         if _verify_otp_hash(code, row["hashed_code"]):
-            await db.execute("UPDATE email_otp_codes SET used = 1 WHERE id = ?", (row["id"],))
-            return True
+            # Atomic single-use consume — two concurrent verifies can't both succeed.
+            consumed = await db.fetchone(
+                "UPDATE email_otp_codes SET used = 1 WHERE id = ? AND used = 0 RETURNING id",
+                (row["id"],),
+                commit=True,
+            )
+            if consumed:
+                return True
     return False
 
 

@@ -23,6 +23,17 @@ logger = logging.getLogger(__name__)
 # This is intentionally not persisted — if the backend restarts, open fds are gone.
 _active: dict[str, dict] = {}
 
+# Secrets that live in the backend's own environment (exported from .env by the
+# launcher) must NOT be inherited by spawned shells/REPLs/agents. Any process in a
+# session (including `claude` or a third-party CLI's postinstall) could otherwise read
+# JWT_SECRET to forge tokens or CRYPTO_SALT/APP_SECRET to decrypt stored TOTP secrets.
+_SECRET_ENV_KEYS = frozenset({
+    "APP_SECRET",
+    "JWT_SECRET",
+    "CRYPTO_SALT",
+    "SMTP_PASSWORD",
+})
+
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
     winsize = struct.pack("HHHH", rows, cols, 0, 0)
@@ -58,7 +69,8 @@ def spawn(session_id: str, cmd: list[str], env: dict, cols: int, rows: int) -> i
     try:
         _set_winsize(slave_fd, rows, cols)
 
-        env_merged = {**os.environ, **env, "TERM": "xterm-256color"}
+        base_env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS}
+        env_merged = {**base_env, **env, "TERM": "xterm-256color"}
 
         proc = subprocess.Popen(
             cmd,

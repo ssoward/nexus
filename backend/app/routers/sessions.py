@@ -41,17 +41,15 @@ async def create_session(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    s = get_settings()
-    existing = await session_service.list_sessions(current_user["id"])
-    running = [x for x in existing if x.status == SessionStatus.RUNNING]
-    if len(running) >= s.max_panes:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Maximum of {s.max_panes} concurrent sessions reached",
-        )
-
     ip = request.client.host if request.client else None
-    session = await session_service.create_session(current_user["id"], req, ip)
+    try:
+        # The cap is enforced atomically inside create_session (count + reserve slot
+        # under a lock) so concurrent requests can't exceed max_panes.
+        session = await session_service.create_session(current_user["id"], req, ip)
+    except session_service.SessionLimitError as e:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     return _to_public(session)
 
 
@@ -75,12 +73,21 @@ async def restart_session(
 
     pty_service.kill(session_id)  # clean up any stale fd
     try:
-        pid = pty_service.spawn(session_id, preset["command"], {}, session.cols, session.rows)
-        await pty_broadcaster.ensure_reader(session_id)
-        await db.execute(
-            "UPDATE sessions SET container_id = ?, status = ? WHERE id = ?",
-            (str(pid), SessionStatus.RUNNING.value, session_id),
-        )
+        # Re-spawning consumes a slot — enforce the same cap as create, atomically.
+        async with session_service._slot_lock:
+            if await session_service.count_active_sessions(current_user["id"]) >= s.max_panes:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Maximum of {s.max_panes} concurrent sessions reached",
+                )
+            pid = pty_service.spawn(session_id, preset["command"], {}, session.cols, session.rows)
+            await pty_broadcaster.ensure_reader(session_id)
+            await db.execute(
+                "UPDATE sessions SET container_id = ?, status = ? WHERE id = ?",
+                (str(pid), SessionStatus.RUNNING.value, session_id),
+            )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.exception("Failed to restart session %s: %s", session_id[:8], e)
         await db.execute(

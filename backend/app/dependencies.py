@@ -40,11 +40,22 @@ async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -
             raise credentials_exception
 
     row = await db.fetchone(
-        "SELECT id, username, lockout_until FROM users WHERE id = ?",
+        "SELECT id, username, lockout_until, tokens_valid_after FROM users WHERE id = ?",
         (int(user_id),),
     )
     if row is None:
         raise credentials_exception
+
+    # Per-user token invalidation: password change, email change, and MFA recovery
+    # stamp tokens_valid_after. Any token whose auth_time predates that stamp is dead,
+    # so those events evict every outstanding session — not just the current cookie.
+    tva = row["tokens_valid_after"]
+    if tva:
+        cutoff = datetime.fromisoformat(tva)
+        if cutoff.tzinfo is None:
+            cutoff = cutoff.replace(tzinfo=timezone.utc)
+        if auth_time is None or auth_time < cutoff.timestamp():
+            raise credentials_exception
 
     # Enforce account lockout on already-issued tokens
     if row["lockout_until"]:

@@ -4,11 +4,13 @@
 set -euo pipefail
 
 # ── SECURITY NOTE (CRIT-3) ────────────────────────────────────────────────────
-# The backend binds to 0.0.0.0:8000 so Docker (Caddy) can reach it via
-# host.docker.internal. This port must NOT be reachable from the internet.
+# The backend binds to 127.0.0.1:8000 (see the uvicorn invocation below). Caddy
+# reaches it from its container via host.docker.internal, and the loopback bind
+# keeps the port off every other interface. The rate limiter only trusts
+# forwarded-IP headers from a loopback/private peer (see app/limiter.py), so do
+# NOT change this to 0.0.0.0 without re-checking that assumption.
 #
-# macOS: Docker bridge is not externally routable — no action needed.
-# Linux: Restrict access with:
+# Linux, if you must expose it beyond loopback, restrict access with:
 #   sudo ufw deny 8000
 #   sudo ufw allow from 172.16.0.0/12 to any port 8000  # Docker bridge range
 # ─────────────────────────────────────────────────────────────────────────────

@@ -151,6 +151,12 @@ async def authenticate_user(
             await _increment_failed_login(user_id, ip)
             return None
 
+    else:
+        # Fail closed: an unrecognized mfa_method must never fall through to a
+        # password-only success (defends against corrupt/unexpected DB state).
+        await _write_audit(user_id, AuditAction.LOGIN_FAILURE, {"reason": "unknown_mfa_method"}, ip)
+        return None
+
     # Full success — reset failed count
     await db.execute(
         "UPDATE users SET failed_login_count = 0, lockout_until = NULL WHERE id = ?",
