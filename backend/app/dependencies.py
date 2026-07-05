@@ -5,7 +5,7 @@ from typing import Optional
 from app.database import db
 from app.services.token_service import decode_access_token
 
-_MAX_SESSION_SECONDS = 24 * 60 * 60  # 24-hour absolute session ceiling (MED-4)
+_MAX_SESSION_SECONDS = 7 * 24 * 60 * 60  # 7-day absolute session ceiling (MED-4)
 
 
 async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -> dict:

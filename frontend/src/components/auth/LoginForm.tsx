@@ -31,10 +31,7 @@ export function LoginForm() {
 
   const resetCode = () => { setCode(''); setError('') }
 
-  // Stamp sessionStorage so useAuth knows this is an active session (not a fresh
-  // PWA open where iOS may have kept the httpOnly cookie but cleared sessionStorage).
   const completeLogin = (username: string) => {
-    sessionStorage.setItem('nexus_active', '1')
     setUser({ id: 0, username } as User)
     window.location.href = '/'
   }

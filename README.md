@@ -59,7 +59,7 @@ Typical uses:
 - **iOS/Android keyboard support** — quick-access keybar (Tab, ^C, Paste, arrows, ESC, ^D); Mic button for voice-to-text; visualViewport resize listener refits xterm when the soft keyboard appears
 - **Correct column count** — xterm waits for custom fonts (`document.fonts.ready`) before measuring character width, so the PTY always gets the right column count
 - **Swipe to switch sessions** — horizontal swipe gesture on mobile switches between sessions
-- **PWA re-auth on every open** — adding to the iOS/Android home screen requires Face ID/Touch ID on every launch via `sessionStorage` stamp + server-side cookie revocation
+- **Long-lived sessions** — the auth cookie persists across app/browser restarts (7-day TTL with a 7-day absolute ceiling), so reopening the PWA does not require re-login until the session expires
 
 ### Orchestration & Automation
 - **Orchestrator panel** — sidebar tab showing real-time state (WORKING / WAITING / ASKING / BUSY) for every session; batch-send to all WAITING sessions at once; voice-to-text input
@@ -401,7 +401,7 @@ app:
 
 session:
   idle_timeout_seconds: 86400
-  jwt_expire_minutes: 1440      # 24 hours
+  jwt_expire_minutes: 10080     # 7 days (matches the 7-day absolute session ceiling)
 
 webauthn:
   rp_id: your-machine.tail12345.ts.net

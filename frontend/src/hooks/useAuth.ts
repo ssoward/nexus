@@ -2,27 +2,15 @@ import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/store/authStore'
 import { getMe, logout as apiLogout, refreshToken } from '@/api/auth'
 
-// Refresh the cookie at 30-minute intervals — comfortably inside the 60-minute JWT TTL.
+// Refresh the cookie at 30-minute intervals so an active session always
+// carries a recently-issued JWT (7-day TTL, 7-day absolute ceiling).
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000
-
-// sessionStorage key stamped at login. iOS clears sessionStorage when the PWA
-// is closed, so a missing stamp on startup means a fresh open → force re-auth.
-const SESSION_FLAG = 'nexus_active'
 
 export function useAuth() {
   const { user, isAuthenticated, setUser } = useAuthStore()
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!sessionStorage.getItem(SESSION_FLAG)) {
-      // Fresh PWA open — iOS may have kept the httpOnly cookie but wiped
-      // sessionStorage. Clear the cookie server-side so Face ID is required.
-      apiLogout().catch(() => {}).finally(() => {
-        setUser(null)
-        setLoading(false)
-      })
-      return
-    }
     getMe()
       .then(setUser)
       .catch(() => setUser(null))
@@ -30,7 +18,7 @@ export function useAuth() {
   }, [setUser])
 
   // Silently refresh the token while the tab is open so active users
-  // are never evicted by the 60-minute hard TTL.
+  // are never evicted mid-use by the JWT TTL.
   useEffect(() => {
     if (!isAuthenticated) return
     const id = setInterval(() => {
@@ -61,7 +49,6 @@ export function useAuth() {
   }, [isAuthenticated])
 
   const logout = async () => {
-    sessionStorage.removeItem(SESSION_FLAG)
     await apiLogout()
     setUser(null)
     window.location.href = '/login'

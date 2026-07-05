@@ -29,11 +29,14 @@ COOKIE_NAME = "access_token"
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
-    # No max_age — session cookie so the browser discards it on close,
-    # requiring re-authentication (biometric/passkey) on every app open.
+    # Persistent cookie matching the JWT TTL so sessions survive browser/app
+    # close. The absolute session ceiling is still enforced server-side via
+    # the auth_time claim (see dependencies._MAX_SESSION_SECONDS).
+    s = get_settings()
     response.set_cookie(
         key=COOKIE_NAME,
         value=token,
+        max_age=s.jwt_expire_minutes * 60,
         httponly=True,
         secure=True,
         samesite="strict",
@@ -110,7 +113,7 @@ async def refresh_token(
     """
     Re-issue the access-token cookie while the user is still active.
     The frontend calls this every 30 minutes so a session never expires
-    mid-use. Enforces a 24-hour absolute session lifetime — after that
+    mid-use. Enforces a 7-day absolute session lifetime — after that
     the user must re-authenticate.
     """
     # Propagate auth_time from the current token to enforce absolute lifetime

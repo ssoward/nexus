@@ -432,21 +432,22 @@ class TestSqlInjectionPayloads:
 
 
 class TestAbsoluteSessionTimeout:
-    """MED-4: auth_time claim enforces 24-hour absolute session ceiling."""
+    """MED-4: auth_time claim enforces the absolute session ceiling."""
 
     async def test_expired_auth_time_rejected(self, client: AsyncClient, setup_db):
-        """A token with auth_time > 24h ago must be rejected even if exp is in the future."""
+        """A token with auth_time past the ceiling must be rejected even if exp is in the future."""
         import time
         import jwt as pyjwt
         from app.config import get_settings
+        from app.dependencies import _MAX_SESSION_SECONDS
         from app.services.token_service import create_ws_token
         import uuid
         from datetime import timedelta, timezone, datetime
 
         s = get_settings()
-        # Craft a token with auth_time 25 hours ago but exp still in the future
+        # Craft a token with auth_time one hour past the ceiling but exp still in the future
         now = datetime.now(timezone.utc)
-        stale_auth_time = (now - timedelta(hours=25)).timestamp()
+        stale_auth_time = (now - timedelta(seconds=_MAX_SESSION_SECONDS + 3600)).timestamp()
         payload = {
             "sub": "999",
             "iat": now,
