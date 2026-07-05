@@ -30,8 +30,8 @@ COOKIE_NAME = "access_token"
 
 def _set_auth_cookie(response: Response, token: str) -> None:
     # Persistent cookie matching the JWT TTL so sessions survive browser/app
-    # close. The absolute session ceiling is still enforced server-side via
-    # the auth_time claim (see dependencies._MAX_SESSION_SECONDS).
+    # close. Each /auth/refresh slides both forward, so a session only ends
+    # on explicit logout (or credential-change eviction via tokens_valid_after).
     s = get_settings()
     response.set_cookie(
         key=COOKIE_NAME,
@@ -100,9 +100,6 @@ async def login(
     return {"ok": True, "username": user["username"]}
 
 
-from app.dependencies import _MAX_SESSION_SECONDS as MAX_SESSION_SECONDS
-
-
 @router.post("/refresh")
 @limiter.limit("30/minute")
 async def refresh_token(
@@ -111,23 +108,18 @@ async def refresh_token(
     current_user: dict = Depends(get_current_user),
 ):
     """
-    Re-issue the access-token cookie while the user is still active.
-    The frontend calls this every 30 minutes so a session never expires
-    mid-use. Enforces a 7-day absolute session lifetime — after that
-    the user must re-authenticate.
+    Re-issue the access-token cookie while the user is still active,
+    sliding the JWT/cookie expiry forward. There is no absolute session
+    lifetime — a session persists until the user explicitly logs out.
     """
-    # Propagate auth_time from the current token to enforce absolute lifetime
+    # Propagate auth_time so credential-change eviction (tokens_valid_after)
+    # still invalidates every session issued before the change.
     cookie = request.cookies.get(COOKIE_NAME)
     auth_time = None
     if cookie:
         payload = decode_access_token(cookie)
         if payload:
             auth_time = payload.get("auth_time")
-    if auth_time and (datetime.now(timezone.utc).timestamp() - auth_time > MAX_SESSION_SECONDS):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Session expired — please sign in again",
-        )
     token = create_access_token(current_user["id"], auth_time=auth_time)
     _set_auth_cookie(response, token)
     return {"ok": True}

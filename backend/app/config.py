@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # JWT settings
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 60
+    jwt_expire_minutes: int = 525600  # 365 days; refresh slides it, logout ends it
     ws_token_expire_seconds: int = 60
 
     # App settings (can be overridden by config.yml)

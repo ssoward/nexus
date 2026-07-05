@@ -3,7 +3,8 @@ import { useAuthStore } from '@/store/authStore'
 import { getMe, logout as apiLogout, refreshToken } from '@/api/auth'
 
 // Refresh the cookie at 30-minute intervals so an active session always
-// carries a recently-issued JWT (7-day TTL, 7-day absolute ceiling).
+// carries a recently-issued JWT (365-day TTL, slid forward on every refresh —
+// sessions persist until explicit logout).
 const REFRESH_INTERVAL_MS = 30 * 60 * 1000
 
 export function useAuth() {

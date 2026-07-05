@@ -431,33 +431,30 @@ class TestSqlInjectionPayloads:
         assert r.status_code in (401, 422, 429)
 
 
-class TestAbsoluteSessionTimeout:
-    """MED-4: auth_time claim enforces the absolute session ceiling."""
+class TestNoAbsoluteSessionTimeout:
+    """Sessions never age out — only explicit logout or credential-change eviction ends them."""
 
-    async def test_expired_auth_time_rejected(self, client: AsyncClient, setup_db):
-        """A token with auth_time past the ceiling must be rejected even if exp is in the future."""
-        import time
+    async def test_old_auth_time_accepted(self, client: AsyncClient, test_user):
+        """A token with a months-old auth_time must still be accepted while exp is in the future."""
         import jwt as pyjwt
         from app.config import get_settings
-        from app.dependencies import _MAX_SESSION_SECONDS
-        from app.services.token_service import create_ws_token
         import uuid
         from datetime import timedelta, timezone, datetime
 
         s = get_settings()
-        # Craft a token with auth_time one hour past the ceiling but exp still in the future
+        # Craft a token authenticated 90 days ago but with exp still in the future
         now = datetime.now(timezone.utc)
-        stale_auth_time = (now - timedelta(seconds=_MAX_SESSION_SECONDS + 3600)).timestamp()
+        old_auth_time = (now - timedelta(days=90)).timestamp()
         payload = {
-            "sub": "999",
+            "sub": str(test_user["id"]),
             "iat": now,
             "exp": now + timedelta(hours=1),
             "jti": str(uuid.uuid4()),
-            "auth_time": stale_auth_time,
+            "auth_time": old_auth_time,
         }
-        stale_token = pyjwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
-        r = await client.get("/api/auth/me", cookies={"access_token": stale_token})
-        assert r.status_code == 401
+        old_token = pyjwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
+        r = await client.get("/api/auth/me", cookies={"access_token": old_token})
+        assert r.status_code == 200
 
     async def test_fresh_auth_time_accepted(self, auth_client):
         """A normally-issued token (auth_time = now) must be accepted."""

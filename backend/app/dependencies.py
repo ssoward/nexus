@@ -5,8 +5,6 @@ from typing import Optional
 from app.database import db
 from app.services.token_service import decode_access_token
 
-_MAX_SESSION_SECONDS = 7 * 24 * 60 * 60  # 7-day absolute session ceiling (MED-4)
-
 
 async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -> dict:
     credentials_exception = HTTPException(
@@ -24,11 +22,10 @@ async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -
     if user_id is None:
         raise credentials_exception
 
-    # MED-4: Enforce absolute session lifetime even on non-refresh requests.
     # auth_time is set at login and propagated unchanged through every refresh.
+    # There is no absolute session ceiling — sessions live until explicit logout
+    # (or global eviction via tokens_valid_after below).
     auth_time = payload.get("auth_time")
-    if auth_time and (datetime.now(timezone.utc).timestamp() - auth_time > _MAX_SESSION_SECONDS):
-        raise credentials_exception
 
     # Check token revocation: reject tokens invalidated at logout
     jti = payload.get("jti")
