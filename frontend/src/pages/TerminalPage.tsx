@@ -12,6 +12,7 @@ import type { EmbeddedPage as EmbeddedPageType } from '@/types/page'
 import { useSession } from '@/hooks/useSession'
 import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
 import { useSessionStore } from '@/store/sessionStore'
 import { useAutoPromote } from '@/hooks/useAutoPromote'
 
@@ -19,6 +20,9 @@ export function TerminalPage() {
   const { logout, user } = useAuth()
   const { sessions, refresh } = useSession()
   const isMobile = useIsMobile()
+  // Keep the layout inside the visible area when the mobile soft keyboard
+  // opens (iOS overlays the keyboard instead of resizing the viewport).
+  useVisualViewportHeight(isMobile)
   const { layoutMode, setLayoutMode, autoPromote, setAutoPromote } = useSessionStore()
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [sidebarWidth, setSidebarWidth] = useState(256)
@@ -97,7 +101,10 @@ export function TerminalPage() {
   useAutoPromote(running)
 
   return (
-    <div className="flex h-dvh bg-terminal-bg overflow-hidden">
+    <div
+      className="flex bg-terminal-bg overflow-hidden"
+      style={{ height: 'var(--app-height, 100dvh)' }}
+    >
 
       {/* ── Mobile backdrop ── */}
       {isMobile && sidebarOpen && (

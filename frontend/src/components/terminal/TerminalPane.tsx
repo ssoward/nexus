@@ -126,7 +126,10 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     })
     observer.observe(containerRef.current)
     return () => observer.disconnect()
-  }, [sendResize])
+    // `terminal` must be a dep: the observer's closure captures it, and without
+    // re-registering after it's set the guard above stays null forever and
+    // container resizes (e.g. the mobile keyboard shrinking the layout) never refit.
+  }, [sendResize, terminal])
 
   // Focus + refit when pane becomes active (important on mobile after un-hiding)
   useEffect(() => {
@@ -142,21 +145,9 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     }
   }, [isActive, terminal, isMobile, showSoftKeyboard, sendResize])
 
-  // iOS Safari: visualViewport shrinks when the soft keyboard appears.
-  // The ResizeObserver won't fire (our container's CSS size doesn't change),
-  // so we watch visualViewport directly and refit after keyboard in/out.
-  useEffect(() => {
-    if (!isMobile || !window.visualViewport) return
-    const vv = window.visualViewport
-    const handleVVResize = () => {
-      setTimeout(() => {
-        fitAddonRef.current?.fit()
-        if (terminal) sendResize(terminal.cols, terminal.rows)
-      }, 50)
-    }
-    vv.addEventListener('resize', handleVVResize)
-    return () => vv.removeEventListener('resize', handleVVResize)
-  }, [isMobile, terminal, sendResize])
+  // Soft-keyboard handling: useVisualViewportHeight (TerminalPage) shrinks the
+  // root layout to the visible area, so the container's CSS size changes and
+  // the ResizeObserver above performs the refit — no direct listener needed here.
 
   const handleClick = () => {
     onClick()

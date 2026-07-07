@@ -55,8 +55,9 @@ Typical uses:
 - **Secure by default** — httpOnly/Secure/SameSite=Strict cookies; strict CSP; HSTS with preload; WebAuthn UV enforced; no Swagger/ReDoc in production
 
 ### Mobile & PWA
-- **Full-screen mobile layout** — hamburger opens a solid overlay sidebar; terminal fills 100% of the dynamic viewport (`h-dvh`); no empty space when the keyboard is hidden
-- **iOS/Android keyboard support** — quick-access keybar (Tab, ^C, Paste, arrows, ESC, ^D); Mic button for voice-to-text; visualViewport resize listener refits xterm when the soft keyboard appears
+- **Full-screen mobile layout** — hamburger opens a solid overlay sidebar; terminal fills 100% of the visible viewport; no empty space when the keyboard is hidden
+- **Keyboard-aware viewport** — on touch devices the layout height tracks `visualViewport` (mirrored into a `--app-height` CSS variable), so when the soft keyboard opens the whole layout shrinks to the visible area and the terminal refits — the cursor line and keybar stay above the keyboard instead of hiding behind it (iOS ignores `interactive-widget=resizes-content`, which is still set for Android)
+- **iOS/Android keyboard support** — quick-access keybar (Tab, ^C, Paste, arrows, ESC, ^D); Mic button for voice-to-text
 - **Correct column count** — xterm waits for custom fonts (`document.fonts.ready`) before measuring character width, so the PTY always gets the right column count
 - **Swipe to switch sessions** — horizontal swipe gesture on mobile switches between sessions
 - **Persistent sessions** — the auth cookie survives app/browser restarts and is slid forward on every refresh (365-day TTL, no absolute ceiling), so a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric
