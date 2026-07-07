@@ -159,7 +159,10 @@ export function useTerminalSocket({ sessionId, terminal, onDead }: TerminalSocke
 
   useEffect(() => {
     if (terminal) {
-      connect()
+      // Replay the server-side ring buffer on the initial attach too (not just
+      // reconnects), so opening an already-running session shows its recent
+      // output — tmux-attach behavior — instead of a blank pane.
+      connect(true)
     }
     return () => {
       cleanup()

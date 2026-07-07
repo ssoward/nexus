@@ -36,7 +36,8 @@ Typical uses:
 - **Draggable resize handles** — drag the sidebar's right edge to resize it (160–520 px); drag the divider between the terminal area and an embedded page to adjust the split (20–80%); desktop only; all sidebar tab panels (Sessions, Orchestrator, Pages) fill the resized width
 - **Build version badge** — commit hash and UTC build timestamp displayed in the bottom-left corner on desktop for instant deploy verification
 - **Multi-tab support** — open the same session in multiple browser tabs; all tabs share one PTY reader
-- **Session recovery** — on graceful shutdown, ring buffers are serialized; sessions replay buffered output on the next connect
+- **Output history on attach** — opening an already-running session replays the server-side ring buffer (up to 512 KB of recent output), tmux-attach style, so you see what happened before you connected — from any device or tab
+- **Session recovery** — enabled via `recovery.enabled` in `config.yml`: on graceful shutdown, ring buffers are serialized to `~/.nexus/recovery.json`; sessions re-spawn and replay buffered output after a backend restart (within `recovery.ttl_hours`)
 - **Visibility-triggered reconnect** — returning from a backgrounded tab automatically reconnects WebSocket and replays missed output
 - **Inactivity detection** — amber pulsing border and sidebar badge after 60 seconds of no output
 
@@ -416,6 +417,10 @@ app:
 session:
   idle_timeout_seconds: 86400
   jwt_expire_minutes: 525600    # 365 days — refresh slides it forward; sessions end only on explicit logout
+
+recovery:
+  enabled: true                 # serialize ring buffers on graceful shutdown; replay after restart
+  ttl_hours: 24                 # discard recovery data if the backend was down longer than this
 
 webauthn:
   rp_id: your-machine.tail12345.ts.net

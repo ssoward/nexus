@@ -9,6 +9,10 @@ app:
 session:
   jwt_expire_minutes: 525600  # 365 days — slid forward on every refresh, so sessions only end on explicit logout
 
+recovery:
+  enabled: true    # serialize session ring buffers on graceful shutdown and replay after restart
+  ttl_hours: 24    # discard the recovery file if the backend was down longer than this
+
 presets:
   - name: bash
     command: ["/bin/bash", "-l"]
