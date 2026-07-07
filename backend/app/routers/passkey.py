@@ -33,18 +33,9 @@ router = APIRouter(prefix="/api/auth/passkey", tags=["passkey"])
 CHALLENGE_TTL_SECONDS = 120
 COOKIE_NAME = "access_token"
 
-
-def _set_auth_cookie(response: Response, token: str) -> None:
-    # No max_age — session cookie cleared on browser close, requiring
-    # biometric/passkey re-authentication on every app open.
-    response.set_cookie(
-        key=COOKIE_NAME,
-        value=token,
-        httponly=True,
-        secure=True,
-        samesite="strict",
-        path="/",
-    )
+# Shared persistent-cookie helper — passkey logins get the same long-lived
+# session as password logins (survives browser close, slid on refresh).
+from app.routers.auth import _set_auth_cookie  # noqa: E402
 
 
 def _get_origin(request: Request) -> str:  # noqa: ARG001

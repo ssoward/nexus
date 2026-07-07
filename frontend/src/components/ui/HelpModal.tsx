@@ -57,7 +57,7 @@ const SECTIONS = [
     title: 'Security',
     items: [
       ['2FA', 'Every login requires a TOTP code from your authenticator app (Google Authenticator, Authy, 1Password, etc.). Re-configure it via the lock icon in the header.'],
-      ['Auto sign-out', 'Sessions expire after 60 minutes of inactivity. Active tabs refresh automatically every 30 minutes.'],
+      ['Session lifetime', 'Sessions persist until you explicitly log out — they survive browser and app restarts. Changing your password, email, or MFA settings signs out all other sessions.'],
     ],
   },
 ]

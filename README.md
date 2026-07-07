@@ -59,7 +59,7 @@ Typical uses:
 - **iOS/Android keyboard support** — quick-access keybar (Tab, ^C, Paste, arrows, ESC, ^D); Mic button for voice-to-text; visualViewport resize listener refits xterm when the soft keyboard appears
 - **Correct column count** — xterm waits for custom fonts (`document.fonts.ready`) before measuring character width, so the PTY always gets the right column count
 - **Swipe to switch sessions** — horizontal swipe gesture on mobile switches between sessions
-- **Persistent sessions** — the auth cookie survives app/browser restarts and is slid forward on every refresh (365-day TTL, no absolute ceiling), so a session only ends on explicit logout or a credential change (password/email/MFA recovery)
+- **Persistent sessions** — the auth cookie survives app/browser restarts and is slid forward on every refresh (365-day TTL, no absolute ceiling), so a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric
 
 ### Orchestration & Automation
 - **Orchestrator panel** — sidebar tab showing real-time state (WORKING / WAITING / ASKING / BUSY) for every session; batch-send to all WAITING sessions at once; voice-to-text input
