@@ -100,6 +100,19 @@ def get_fd(session_id: str) -> Optional[int]:
     return s["master_fd"] if s else None
 
 
+def write_all(fd: int, data: bytes) -> None:
+    """Write every byte to the fd, looping over partial writes (I2).
+
+    os.write may write fewer bytes than requested; a bare os.write can silently
+    truncate large keystroke bursts / pasted input. Blocking call — run it in an
+    executor from async code.
+    """
+    view = memoryview(data)
+    while view:
+        written = os.write(fd, view)
+        view = view[written:]
+
+
 def get_pid(session_id: str) -> Optional[int]:
     s = _active.get(session_id)
     return s["pid"] if s else None

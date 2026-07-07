@@ -37,7 +37,7 @@ Typical uses:
 - **Build version badge** — commit hash and UTC build timestamp displayed in the bottom-left corner on desktop for instant deploy verification
 - **Multi-tab support** — open the same session in multiple browser tabs; all tabs share one PTY reader
 - **Output history on attach** — opening an already-running session replays the server-side ring buffer (up to 512 KB of recent output), tmux-attach style, so you see what happened before you connected — from any device or tab
-- **Session recovery** — enabled via `recovery.enabled` in `config.yml`: on graceful shutdown, ring buffers are serialized to `~/.nexus/recovery.json`; sessions re-spawn and replay buffered output after a backend restart (within `recovery.ttl_hours`)
+- **Session recovery** — enabled via `recovery.enabled` in `config.yml`: on graceful shutdown, ring buffers are serialized (AES-GCM encrypted at rest) to `~/.nexus/recovery.enc`; sessions re-spawn and replay buffered output after a backend restart (within `recovery.ttl_hours`). Scrollback often contains secrets, so the file is encrypted with the app's derived key and written `0600`.
 - **Visibility-triggered reconnect** — returning from a backgrounded tab automatically reconnects WebSocket and replays missed output
 - **Inactivity detection** — amber pulsing border and sidebar badge after 60 seconds of no output
 

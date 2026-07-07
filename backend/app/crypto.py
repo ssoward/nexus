@@ -45,6 +45,25 @@ def decrypt_totp_secret(encrypted: bytes, user_id: int) -> str:
     return plaintext.decode()
 
 
+def encrypt_bytes(plaintext: bytes, context: str = "generic") -> bytes:
+    """AES-GCM encrypt arbitrary bytes with the app's derived key.
+
+    `context` is bound as associated data so ciphertext from one purpose
+    (e.g. recovery scrollback) can't be replayed as another.
+    """
+    aesgcm = AESGCM(_get_key())
+    nonce = os.urandom(12)
+    ciphertext = aesgcm.encrypt(nonce, plaintext, context.encode())
+    return nonce + ciphertext
+
+
+def decrypt_bytes(encrypted: bytes, context: str = "generic") -> bytes:
+    aesgcm = AESGCM(_get_key())
+    nonce = encrypted[:12]
+    ciphertext = encrypted[12:]
+    return aesgcm.decrypt(nonce, ciphertext, context.encode())
+
+
 def _pw_digest(password: str) -> bytes:
     """SHA-256 → base64 so bcrypt sees 44 printable bytes (full 256-bit entropy)."""
     return base64.b64encode(hashlib.sha256(password.encode()).digest())

@@ -337,8 +337,11 @@ async def bootstrap_totp(
 
     secret = pyotp.random_base32()
     encrypted = encrypt_totp_secret(secret, row["id"])
+    # Set mfa_method alongside the secret — otherwise the account is left with an
+    # orphaned TOTP secret but mfa_method NULL, so the next login returns
+    # NEEDS_MFA_SETUP and the authenticator can never be used (I1).
     await db.execute(
-        "UPDATE users SET encrypted_totp_secret = ? WHERE id = ?",
+        "UPDATE users SET encrypted_totp_secret = ?, mfa_method = 'totp' WHERE id = ?",
         (encrypted, row["id"]),
     )
     await db.execute(

@@ -1,6 +1,5 @@
 import asyncio
 import logging
-import os
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, field_validator
@@ -117,5 +116,5 @@ async def send_session_input(
         raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Rate limit exceeded")
 
     loop = asyncio.get_event_loop()
-    await loop.run_in_executor(None, os.write, master_fd, body.data.encode())
+    await loop.run_in_executor(None, pty_service.write_all, master_fd, body.data.encode())
     return {"ok": True}

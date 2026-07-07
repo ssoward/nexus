@@ -179,7 +179,7 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
                     if not await rate_limiter.allow(session_id, len(data)):
                         continue
                     encoded = data.encode()
-                    await loop.run_in_executor(None, os.write, master_fd, encoded)
+                    await loop.run_in_executor(None, pty_service.write_all, master_fd, encoded)
 
                 elif ftype == "resize":
                     try:

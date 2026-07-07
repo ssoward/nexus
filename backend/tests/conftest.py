@@ -22,11 +22,24 @@ from app.config import get_settings
 from app.crypto import init_crypto, hash_password
 from app.database import db
 from app.limiter import limiter
-from app.routers import auth as auth_router, sessions as sessions_router, passkey as passkey_router
+from app.routers import (
+    auth as auth_router,
+    sessions as sessions_router,
+    passkey as passkey_router,
+    orchestration as orchestration_router,
+    pages as pages_router,
+    workspaces as workspaces_router,
+)
 
 # One-time crypto init — matches what app lifespan does
 _s = get_settings()
 init_crypto(_s.app_secret, _s.crypto_salt)
+
+# Disable per-route rate limiting in tests: slowapi stores counters in a
+# process-global in-memory backend that is NOT reset between tests, so several
+# tests hitting the same 5/minute endpoint would bleed into 429s. No test
+# asserts rate-limit behavior, so turning the limiter off keeps tests isolated.
+limiter.enabled = False
 
 # Full schema (mirrors alembic migrations 0001 + 0006)
 _SCHEMA = [
@@ -122,6 +135,24 @@ _SCHEMA = [
         created_at  TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
     "CREATE INDEX IF NOT EXISTS idx_recovery_user ON account_recovery_tokens(user_id)",
+    """CREATE TABLE IF NOT EXISTS workspaces (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name        TEXT NOT NULL,
+        color       TEXT NOT NULL DEFAULT '#388bfd',
+        sort_order  INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_workspaces_user_id ON workspaces(user_id)",
+    """CREATE TABLE IF NOT EXISTS pages (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id     INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        name        TEXT NOT NULL,
+        url         TEXT NOT NULL,
+        position    INTEGER NOT NULL DEFAULT 0,
+        created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    )""",
+    "CREATE INDEX IF NOT EXISTS idx_pages_user_id ON pages(user_id)",
 ]
 
 
@@ -134,6 +165,9 @@ def _make_app() -> FastAPI:
     app.include_router(auth_router.router)
     app.include_router(sessions_router.router)
     app.include_router(passkey_router.router)
+    app.include_router(orchestration_router.router)
+    app.include_router(pages_router.router)
+    app.include_router(workspaces_router.router)
     return app
 
 

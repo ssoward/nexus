@@ -89,7 +89,14 @@ async def verify_email_otp(user_id: int, code: str) -> bool:
 
 
 async def cleanup_expired_otps() -> None:
-    """Delete expired codes. Called periodically from watchdog."""
+    """Delete expired codes. Called periodically from watchdog.
+
+    Codes are stored with ISO-8601 (`T`-separated) `expires_at`; comparing against
+    SQLite's space-separated `datetime('now', ...)` never matched (a `T`-string
+    always sorts after a space-string), so expired rows accumulated forever. Use a
+    Python-computed ISO cutoff so the two operands share one format.
+    """
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat()
     await db.execute(
-        "DELETE FROM email_otp_codes WHERE expires_at < datetime('now', '-1 hour')",
+        "DELETE FROM email_otp_codes WHERE expires_at < ?", (cutoff,)
     )

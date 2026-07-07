@@ -72,8 +72,14 @@ async def watch_processes(db) -> None:
                 # Clean up expired email OTP codes and recovery tokens
                 from app.services.otp_service import cleanup_expired_otps
                 await cleanup_expired_otps()
+                # ISO-8601 cutoff to match the stored `T`-separated expires_at
+                # (SQLite's space-separated datetime('now', ...) never compared equal).
+                recovery_cutoff = (
+                    datetime.now(timezone.utc) - timedelta(hours=1)
+                ).isoformat()
                 await db.execute(
-                    "DELETE FROM account_recovery_tokens WHERE expires_at < datetime('now', '-1 hour')"
+                    "DELETE FROM account_recovery_tokens WHERE expires_at < ?",
+                    (recovery_cutoff,),
                 )
 
         except asyncio.CancelledError:

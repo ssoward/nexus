@@ -17,6 +17,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "script-src 'self'; "
             "img-src 'self' data:; "
             "font-src 'self'; "
+            "frame-src https:; "            # embedded Pages (sandboxed iframes to external https)
             "frame-ancestors 'none';"       # clickjacking defence (supersedes X-Frame-Options)
         )
         # HSTS: only when served over HTTPS (belt-and-suspenders with Caddy)

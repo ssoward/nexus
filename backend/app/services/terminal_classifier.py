@@ -20,12 +20,15 @@ WORKING_THRESHOLD = 3.0  # seconds
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]|\x1b\].*?\x07|\x1b\[[\d;]*m")
 
+# NOTE: the trailing whitespace is folded into `\s*` (not a required literal
+# space) because classify() rstrip()s the buffer before matching — a mandatory
+# space would never match a real "$ " prompt.
 _PROMPT_PATTERNS = [
-    re.compile(r"[$#%>»] \s*$"),         # sh / bash / zsh / fish
-    re.compile(r">>> \s*$"),              # Python REPL
-    re.compile(r"\.\.\. \s*$"),           # Python continuation
-    re.compile(r"In \[\d+\]: \s*$"),      # IPython
-    re.compile(r"irb.*> \s*$"),           # Ruby
+    re.compile(r"[$#%>»]\s*$"),           # sh / bash / zsh / fish
+    re.compile(r">>>\s*$"),               # Python REPL
+    re.compile(r"\.\.\.\s*$"),            # Python continuation
+    re.compile(r"In \[\d+\]:\s*$"),       # IPython
+    re.compile(r"irb.*>\s*$"),            # Ruby
 ]
 
 _QUESTION_PATTERNS = [
