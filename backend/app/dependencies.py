@@ -2,6 +2,7 @@ from datetime import datetime, timezone
 from fastapi import Cookie, HTTPException, status
 from typing import Optional
 
+from app.config import get_settings
 from app.database import db
 from app.services.token_service import decode_access_token
 
@@ -22,10 +23,20 @@ async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -
     if user_id is None:
         raise credentials_exception
 
-    # auth_time is set at login and propagated unchanged through every refresh.
-    # There is no absolute session ceiling — sessions live until explicit logout
-    # (or global eviction via tokens_valid_after below).
+    # auth_time is set at login and propagated unchanged through every refresh,
+    # so it marks the original authentication, not the last refresh.
     auth_time = payload.get("auth_time")
+
+    # Optional absolute session ceiling (disabled by default). When configured,
+    # a token whose original login is older than session_absolute_max_hours is
+    # dead regardless of refreshes — caps the usable lifetime of a stolen cookie.
+    max_hours = get_settings().session_absolute_max_hours
+    if max_hours and max_hours > 0:
+        if auth_time is None:
+            raise credentials_exception
+        age_seconds = datetime.now(timezone.utc).timestamp() - float(auth_time)
+        if age_seconds > max_hours * 3600:
+            raise credentials_exception
 
     # Check token revocation: reject tokens invalidated at logout
     jti = payload.get("jti")

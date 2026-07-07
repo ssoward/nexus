@@ -8,6 +8,8 @@ app:
 
 session:
   jwt_expire_minutes: 525600  # 365 days — slid forward on every refresh, so sessions only end on explicit logout
+  absolute_max_hours: 0       # 0 = disabled. If > 0, force a fresh login this many hours after the ORIGINAL
+                              # login regardless of refreshes — a hard ceiling on how long a stolen cookie is usable.
 
 recovery:
   enabled: true    # serialize session ring buffers on graceful shutdown and replay after restart

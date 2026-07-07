@@ -463,6 +463,57 @@ class TestNoAbsoluteSessionTimeout:
         assert r.status_code == 200
 
 
+class TestAbsoluteSessionCeiling:
+    """Opt-in absolute re-auth ceiling (session_absolute_max_hours). Default 0 = off."""
+
+    def _token(self, user_id, auth_age_hours):
+        import jwt as pyjwt
+        import uuid
+        from datetime import timedelta, timezone, datetime
+        from app.config import get_settings
+
+        s = get_settings()
+        now = datetime.now(timezone.utc)
+        payload = {
+            "sub": str(user_id),
+            "iat": now,
+            "exp": now + timedelta(hours=1),  # exp always valid — ceiling is separate
+            "jti": str(uuid.uuid4()),
+            "auth_time": (now - timedelta(hours=auth_age_hours)).timestamp(),
+        }
+        return pyjwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
+
+    async def test_ceiling_disabled_accepts_old_token(self, client: AsyncClient, test_user):
+        from app.config import get_settings
+        s = get_settings()
+        s.session_absolute_max_hours = 0  # explicit default
+        token = self._token(test_user["id"], auth_age_hours=1000)
+        r = await client.get("/api/auth/me", cookies={"access_token": token})
+        assert r.status_code == 200
+
+    async def test_ceiling_rejects_token_past_limit(self, client: AsyncClient, test_user):
+        from app.config import get_settings
+        s = get_settings()
+        s.session_absolute_max_hours = 24
+        try:
+            token = self._token(test_user["id"], auth_age_hours=48)
+            r = await client.get("/api/auth/me", cookies={"access_token": token})
+            assert r.status_code == 401
+        finally:
+            s.session_absolute_max_hours = 0
+
+    async def test_ceiling_accepts_token_within_limit(self, client: AsyncClient, test_user):
+        from app.config import get_settings
+        s = get_settings()
+        s.session_absolute_max_hours = 24
+        try:
+            token = self._token(test_user["id"], auth_age_hours=2)
+            r = await client.get("/api/auth/me", cookies={"access_token": token})
+            assert r.status_code == 200
+        finally:
+            s.session_absolute_max_hours = 0
+
+
 class TestCorsHeaders:
     """HIGH-1: CORS middleware denies cross-origin credentialed requests."""
 

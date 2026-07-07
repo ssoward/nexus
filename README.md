@@ -61,7 +61,7 @@ Typical uses:
 - **iOS/Android keyboard support** — quick-access keybar (Tab, ^C, Paste, arrows, ESC, ^D); Mic button for voice-to-text
 - **Correct column count** — xterm waits for custom fonts (`document.fonts.ready`) before measuring character width, so the PTY always gets the right column count
 - **Swipe to switch sessions** — horizontal swipe gesture on mobile switches between sessions
-- **Persistent sessions** — the auth cookie survives app/browser restarts and is slid forward on every refresh (365-day TTL, no absolute ceiling), so a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric
+- **Persistent sessions** — the auth cookie survives app/browser restarts and is slid forward on every refresh (365-day TTL, no absolute ceiling by default), so a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric. Set `session.absolute_max_hours` in `config.yml` to impose a hard re-authentication ceiling (measured from the original login, unaffected by refreshes) if you want to cap the lifetime of a stolen cookie
 
 ### Orchestration & Automation
 - **Orchestrator panel** — sidebar tab showing real-time state (WORKING / WAITING / ASKING / BUSY) for every session; batch-send to all WAITING sessions at once; voice-to-text input
@@ -351,6 +351,16 @@ Logs live in `~/.nexus/logs/` (`stack.out.log` / `stack.err.log` for the backend
 
 > **Note:** The stack launches at **login** (user-session LaunchAgent), not before login, because the backend spawns PTY processes that require the user's environment and dotfiles. A pre-login root LaunchDaemon is not used. M1/remote install is not yet covered — this iteration supports M5 (local) only.
 
+#### Backend-only supervisor (hosts where Caddy runs independently)
+
+On a host that runs Caddy separately (e.g. a plain `nexus-caddy-1` Docker container) and does **not** use colima or the full `com.nexus.stack` agent, the only unsupervised piece is the uvicorn backend. Install a minimal supervisor that keeps just the backend alive (KeepAlive + restart on crash/reboot):
+
+```bash
+bash macos/install-backend-agent.sh
+```
+
+This renders and bootstraps `com.nexus.backend` (running `scripts/nexus-backend.sh`, which sources `.env`, sets `CONFIG_PATH`, and execs uvicorn on `127.0.0.1:8000`). It boots out any prior copy and kills a stray hand-launched uvicorn first so the port is handed cleanly to the supervised process. Logs: `~/.nexus/logs/backend.{out,err}.log`. Verify with `launchctl print gui/$(id -u)/com.nexus.backend | grep -i state` and `curl -fsS http://127.0.0.1:8000/api/health`. Do **not** run this alongside the full `com.nexus.stack` agent — both bind `:8000`.
+
 ### 7. Create your account
 
 ```bash
@@ -417,6 +427,8 @@ app:
 session:
   idle_timeout_seconds: 86400
   jwt_expire_minutes: 525600    # 365 days — refresh slides it forward; sessions end only on explicit logout
+  absolute_max_hours: 0         # 0 = disabled. If > 0, force re-login this many hours after the ORIGINAL login,
+                                # regardless of refreshes — a hard cap on how long a stolen cookie stays usable
 
 recovery:
   enabled: true                 # serialize ring buffers on graceful shutdown; replay after restart

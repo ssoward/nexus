@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     log_format: str = "text"  # "text" or "json"
     max_panes: int = 6
     session_idle_timeout_seconds: int = 0  # 0 = disabled; sessions run until manually closed or process exits
+    # Absolute re-authentication ceiling. 0 = disabled (default: a session lives
+    # until explicit logout, sliding forever on /refresh). When > 0, any token
+    # whose original auth_time is older than this many hours is rejected, forcing
+    # a fresh login — a hard cap on how long a stolen cookie stays usable.
+    session_absolute_max_hours: int = 0
 
     # TLS auto-renewal
     tls_domain: str = ""
@@ -142,6 +147,8 @@ def get_settings() -> Settings:
             env_overrides["db_path"] = app["db_path"]
         if session.get("idle_timeout_seconds"):
             env_overrides["session_idle_timeout_seconds"] = session["idle_timeout_seconds"]
+        if session.get("absolute_max_hours"):
+            env_overrides["session_absolute_max_hours"] = session["absolute_max_hours"]
         if session.get("jwt_expire_minutes"):
             env_overrides["jwt_expire_minutes"] = session["jwt_expire_minutes"]
         if app.get("log_format"):
