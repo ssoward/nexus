@@ -42,3 +42,8 @@ scripts/nexus-paths.sh
 
 # Backend runtime log (created when uvicorn is launched with nohup)
 backend/uvicorn.log
+
+# Test coverage artifacts
+coverage/
+**/coverage/
+.coverage
