@@ -379,6 +379,15 @@ webauthn:
 
 `rp_id` must exactly match the hostname users access the app on. If it doesn't match, WebAuthn registration and authentication will fail.
 
+**Multi-machine deployments:** `config.yml` is shared via git, so it carries the primary host (M1). On any other machine, override the hostname locally in the untracked `.env` — these take precedence over `config.yml`:
+
+```bash
+# .env (machine-local)
+NEXUS_HOST=your-machine.tail12345.ts.net          # Caddy site address + cert filename (certs/<host>.crt/.key must exist)
+RP_ID=your-machine.tail12345.ts.net               # WebAuthn relying-party ID
+WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
+```
+
 ---
 
 ## Configuration
@@ -390,6 +399,10 @@ webauthn:
 | `APP_SECRET` | Yes | Master key for AES-256-GCM TOTP secret encryption (≥ 32 chars) |
 | `JWT_SECRET` | Yes | HMAC-SHA256 JWT signing key (≥ 32 chars) |
 | `CRYPTO_SALT` | Yes | PBKDF2 salt for key derivation (≥ 16 chars) |
+| `NEXUS_HOST` | No | Hostname Caddy serves on this machine (default `ssowardm1.tail040188.ts.net`); matching cert/key must exist in `certs/` |
+| `RP_ID` | No | Machine-local WebAuthn relying-party ID; overrides `webauthn.rp_id` in `config.yml` |
+| `WEBAUTHN_ORIGIN` | No | Machine-local WebAuthn origin; overrides `webauthn.origin` in `config.yml` |
+| `CADDY_HOST_PORT` | No | Host port for Caddy (default `443`); use `8443` + `tailscale serve` on macOS/colima |
 
 ### `config.yml` — non-secret runtime config
 

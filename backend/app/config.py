@@ -161,11 +161,14 @@ def get_settings() -> Settings:
         if recovery.get("ttl_hours"):
             env_overrides["recovery_ttl_hours"] = recovery["ttl_hours"]
         webauthn = yaml_config.get("webauthn", {})
-        if webauthn.get("rp_id"):
+        # Machine-local env vars (RP_ID / WEBAUTHN_ORIGIN in .env) beat the
+        # git-shared config.yml, so each deployment target can serve passkeys
+        # on its own hostname (config.yml carries the M1 default).
+        if webauthn.get("rp_id") and not os.getenv("RP_ID"):
             env_overrides["rp_id"] = webauthn["rp_id"]
         if webauthn.get("rp_name"):
             env_overrides["rp_name"] = webauthn["rp_name"]
-        if webauthn.get("origin"):
+        if webauthn.get("origin") and not os.getenv("WEBAUTHN_ORIGIN"):
             env_overrides["webauthn_origin"] = webauthn["origin"]
 
     return Settings(**env_overrides)

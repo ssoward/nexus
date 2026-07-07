@@ -1,8 +1,10 @@
-version: "3.9"
-
 services:
   caddy:
     image: caddy:2.8-alpine
+    environment:
+      # Hostname Caddy serves (site address + cert filename). Set NEXUS_HOST in
+      # .env on machines other than M1 (e.g. ssowardm5.tail040188.ts.net).
+      NEXUS_HOST: ${NEXUS_HOST:-ssowardm1.tail040188.ts.net}
     ports:
       # Defaults to 443; on hosts that can't reliably bind privileged ports
       # (e.g. macOS + colima), set CADDY_HOST_PORT=8443 in .env and front it

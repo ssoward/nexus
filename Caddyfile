@@ -3,8 +3,11 @@
   auto_https off
 }
 
-ssowardm1.tail040188.ts.net {
-  tls /certs/ssowardm1.tail040188.ts.net.crt /certs/ssowardm1.tail040188.ts.net.key
+# NEXUS_HOST is injected by docker-compose (default ssowardm1.tail040188.ts.net;
+# override per machine via NEXUS_HOST in .env). The matching cert/key pair must
+# exist in certs/ on that machine.
+{$NEXUS_HOST} {
+  tls /certs/{$NEXUS_HOST}.crt /certs/{$NEXUS_HOST}.key
 
   # MED-3: Strip query strings from access logs (WS tokens appear in query params)
   log {
