@@ -98,6 +98,15 @@ export function TerminalPage() {
   }, [])
 
   const running = sessions.filter((s) => s.status === 'running')
+  // Sessions we attach a pane to. `recovery_pending` sessions (marked after a
+  // graceful backend restart) are re-spawned lazily on their first WebSocket
+  // connect — and mounting a TerminalPane is what opens that socket. Without
+  // this they'd stay "recovering" forever, since nothing else triggers the
+  // backend recovery path. The pane shows "connecting…" until the PTY respawns
+  // and the status flips back to running.
+  const attached = sessions.filter(
+    (s) => s.status === 'running' || s.status === 'recovery_pending'
+  )
   useAutoPromote(running)
 
   return (
@@ -306,8 +315,8 @@ export function TerminalPage() {
             style={activePage && !isMobile ? { flex: `${terminalPct} 1 0%` } : { flex: '1 1 0%' }}
           >
             {layoutMode === 'priority'
-              ? <PriorityLayout sessions={running} isMobile={isMobile} />
-              : <TerminalGrid sessions={running} isMobile={isMobile} />
+              ? <PriorityLayout sessions={attached} isMobile={isMobile} />
+              : <TerminalGrid sessions={attached} isMobile={isMobile} />
             }
           </div>
           {activePage && !isMobile && (
