@@ -30,6 +30,29 @@ PING_INTERVAL = 20
 PONG_TIMEOUT = 30
 OUTPUT_QUEUE_MAX = 500
 
+# Private-mode SET sequences that make the terminal emit input on their own
+# (mouse position/button reports, focus in/out). A full-screen TUI (Claude Code,
+# vim…) enables these and disables them on exit — but the disabling RESET can be
+# evicted from the replay window, or never sent if the TUI was killed during a
+# restart. Replaying just the SET then leaves the client reporting every mouse
+# move as keystrokes to a plain shell ("bash: 35;50M: command not found" floods).
+_MOUSE_MODE_SETS = (b"\x1b[?1000h", b"\x1b[?1002h", b"\x1b[?1003h", b"\x1b[?1006h")
+# Reset every mouse tracking + focus-reporting mode. A live TUI re-enables what it
+# needs on its next repaint (alt-screen sessions take the SIGWINCH path, not this).
+_MOUSE_MODE_RESETS = b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1006l\x1b[?1015l\x1b[?1004l"
+
+
+def _neutralize_stale_input_modes(buffer_data: bytes) -> bytes:
+    """Append mouse/focus-reporting RESETs if the replayed scrollback turns them on.
+
+    Only acts when a SET is actually present in the bytes being replayed — a
+    session that never touched mouse mode is left untouched. Appending a RESET
+    for a mode already balanced by a later RESET in the buffer is a harmless no-op.
+    """
+    if any(seq in buffer_data for seq in _MOUSE_MODE_SETS):
+        return buffer_data + _MOUSE_MODE_RESETS
+    return buffer_data
+
 
 async def _validate_ws_token(token: str, session_id: str) -> int | None:
     payload = decode_ws_token(token)
@@ -156,6 +179,7 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
         else:
             buffer_data = pty_broadcaster.get_raw_buffer(session_id)
             if buffer_data:
+                buffer_data = _neutralize_stale_input_modes(buffer_data)
                 await websocket.send_text(json.dumps({
                     "type": "output",
                     "data": base64.b64encode(buffer_data).decode(),

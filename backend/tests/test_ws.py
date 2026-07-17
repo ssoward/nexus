@@ -7,7 +7,7 @@ from datetime import datetime, timezone, timedelta
 
 import pytest
 
-from app.routers.ws import _validate_ws_token, _UUID_RE
+from app.routers.ws import _validate_ws_token, _UUID_RE, _neutralize_stale_input_modes, _MOUSE_MODE_RESETS
 from app.services.token_service import create_ws_token, create_access_token
 
 
@@ -27,6 +27,27 @@ def test_uuid_regex_accepts_valid_and_rejects_bad():
     assert _UUID_RE.match(SESSION_ID)
     assert not _UUID_RE.match("not-a-uuid")
     assert not _UUID_RE.match("../etc/passwd")
+
+
+class TestNeutralizeStaleInputModes:
+    def test_appends_resets_when_mouse_enabled(self):
+        # Enable present but no matching disable — the stuck-mouse case.
+        buf = b"some output\x1b[?1003h\x1b[?1006hmore output"
+        out = _neutralize_stale_input_modes(buf)
+        assert out == buf + _MOUSE_MODE_RESETS
+
+    def test_appends_resets_even_when_balanced(self):
+        # A trailing reset is a harmless no-op; we still append for safety.
+        buf = b"\x1b[?1000htext\x1b[?1000l"
+        out = _neutralize_stale_input_modes(buf)
+        assert out == buf + _MOUSE_MODE_RESETS
+
+    def test_untouched_when_no_mouse_mode(self):
+        buf = b"plain shell output\nno mouse here\n"
+        assert _neutralize_stale_input_modes(buf) == buf
+
+    def test_empty_buffer_untouched(self):
+        assert _neutralize_stale_input_modes(b"") == b""
 
 
 class TestValidateWsToken:
