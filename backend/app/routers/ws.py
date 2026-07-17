@@ -128,18 +128,38 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
     except Exception:
         logger.warning("Failed to write WS_CONNECT audit log for session %s", session_id[:8])
 
-    # Replay ring buffer on reconnect before subscribing to live output
+    # Subscribe to the shared broadcaster — one PTY reader serves all connected tabs.
+    # Subscribe BEFORE handling replay so the alt-screen repaint we trigger below is
+    # captured by this connection's queue rather than lost before the writer starts.
+    output_queue = pty_broadcaster.subscribe(session_id)
+
+    # Replay strategy on (re)connect.
+    #
+    # The ring buffer holds raw PTY bytes. For a plain shell (append-only, newline-
+    # scrolled output) replaying that byte window just looks like scrollback and is
+    # safe. But for a full-screen TUI in the alternate screen buffer (Claude Code,
+    # vim, less...) the buffer holds absolute-positioned repaint frames whose
+    # enter-alt-screen sequence has usually been evicted by REPLAY_MAX_BYTES. Writing
+    # those into the client's freshly reset() grid paints stale text that the next
+    # frame only partially overwrites — the "prompt at the top overlaying old
+    # history" symptom, seen most often right after exiting Claude.
+    #
+    # So in alt-screen mode we skip raw replay entirely and instead force the app to
+    # emit one full, coherent repaint by nudging its window size (SIGWINCH). The
+    # client has already reset() its grid on a replay connect, so the repaint lands
+    # on a clean screen. This is size-agnostic and works identically on mobile, where
+    # the client also refits and resizes on attach/activation.
     replay_requested = websocket.query_params.get("replay", "") == "1"
     if replay_requested:
-        buffer_data = pty_broadcaster.get_raw_buffer(session_id)
-        if buffer_data:
-            await websocket.send_text(json.dumps({
-                "type": "output",
-                "data": base64.b64encode(buffer_data).decode(),
-            }))
-
-    # Subscribe to the shared broadcaster — one PTY reader serves all connected tabs
-    output_queue = pty_broadcaster.subscribe(session_id)
+        if pty_broadcaster.is_in_alt_screen(session_id):
+            pty_service.resize(session_id, session.cols, session.rows)
+        else:
+            buffer_data = pty_broadcaster.get_raw_buffer(session_id)
+            if buffer_data:
+                await websocket.send_text(json.dumps({
+                    "type": "output",
+                    "data": base64.b64encode(buffer_data).decode(),
+                }))
     loop = asyncio.get_event_loop()
     last_pong = loop.time()
 

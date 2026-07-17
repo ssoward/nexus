@@ -16,6 +16,7 @@ import asyncio
 import errno
 import logging
 import os
+import re
 import time
 from collections import deque
 from dataclasses import dataclass, field
@@ -27,6 +28,16 @@ OUTPUT_QUEUE_MAX = 500
 MAX_SUBSCRIBERS_PER_SESSION = 5  # MED-8: cap concurrent viewers per session
 RING_BUFFER_MAX = 1000  # chunks retained for replay / orchestration
 
+# Alternate-screen-buffer enter/leave sequences (DEC private modes 47, 1047, 1049).
+# TUI apps like Claude Code, vim, and less use these; the "h" variants enter the
+# alt buffer, the "l" variants leave it. We track the running state so replay can
+# avoid dumping raw, absolute-positioned repaint frames (whose enter sequence has
+# usually been evicted by the byte cap) that would overlay stale text. See ws.py.
+_ALT_SCREEN_RE = re.compile(rb"\x1b\[\?(?:1049|1047|47)(h|l)")
+# Longest sequence is 8 bytes (\x1b[?1049h); keep a 7-byte tail so a sequence
+# split across two os.read() chunks is still matched on the next scan.
+_ALT_CARRY_BYTES = 7
+
 
 @dataclass
 class _State:
@@ -36,6 +47,8 @@ class _State:
     closed: bool = False
     ring_buffer: deque = field(default_factory=lambda: deque(maxlen=RING_BUFFER_MAX))
     last_output_time: float = 0.0  # monotonic time of last output
+    in_alt_screen: bool = False  # True while the app holds the alternate screen buffer
+    alt_carry: bytes = b""  # trailing bytes retained to match split alt-screen sequences
 
 
 _sessions: dict[str, _State] = {}
@@ -137,6 +150,12 @@ def get_last_output_time(session_id: str) -> float:
     return state.last_output_time if state else 0.0
 
 
+def is_in_alt_screen(session_id: str) -> bool:
+    """True if the session's app currently holds the alternate screen buffer."""
+    state = _sessions.get(session_id)
+    return bool(state and state.in_alt_screen)
+
+
 # ── Internal reader ──────────────────────────────────────────────────────────
 
 async def _reader_loop(session_id: str) -> None:
@@ -180,6 +199,17 @@ async def _reader_loop(session_id: str) -> None:
         pty_bytes_read_total.inc(len(chunk))
         state.ring_buffer.append(chunk)
         state.last_output_time = time.monotonic()
+
+        # Track alternate-screen enter/leave so replay can render coherently.
+        # Scan carry+chunk so a sequence straddling two reads is still caught;
+        # the last match in the window wins (that's the current buffer state).
+        scan = state.alt_carry + chunk
+        last = None
+        for last in _ALT_SCREEN_RE.finditer(scan):
+            pass
+        if last is not None:
+            state.in_alt_screen = last.group(1) == b"h"
+        state.alt_carry = scan[-_ALT_CARRY_BYTES:]
 
         # Broadcast to every connected tab
         for q in list(state.subscribers):

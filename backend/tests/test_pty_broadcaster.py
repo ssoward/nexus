@@ -77,6 +77,87 @@ class TestSubscription:
         _fresh(sid)
 
 
+class TestAltScreenTracking:
+    def test_unknown_session_not_alt(self):
+        assert bc.is_in_alt_screen("nope") is False
+
+    async def test_enter_and_leave_alt_screen(self):
+        sid = "alt-basic"
+        _fresh(sid)
+        r, w = os.pipe()
+        try:
+            bc.register(sid, r)
+            q = bc.subscribe(sid)
+            await bc.ensure_reader(sid)
+
+            os.write(w, b"before\x1b[?1049hinside")
+            await asyncio.wait_for(q.get(), timeout=2)
+            assert bc.is_in_alt_screen(sid) is True
+
+            os.write(w, b"\x1b[?1049lafter")
+            await asyncio.wait_for(q.get(), timeout=2)
+            assert bc.is_in_alt_screen(sid) is False
+        finally:
+            bc.unregister(sid)
+            for fd in (r, w):
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+            _fresh(sid)
+
+    async def test_alt_sequence_split_across_chunks(self):
+        sid = "alt-split"
+        _fresh(sid)
+        r, w = os.pipe()
+        try:
+            bc.register(sid, r)
+            q = bc.subscribe(sid)
+            await bc.ensure_reader(sid)
+
+            # First read ends mid-sequence; the completing bytes arrive next read.
+            os.write(w, b"\x1b[?104")
+            await asyncio.wait_for(q.get(), timeout=2)
+            assert bc.is_in_alt_screen(sid) is False  # not yet a full match
+
+            os.write(w, b"9h")
+            await asyncio.wait_for(q.get(), timeout=2)
+            assert bc.is_in_alt_screen(sid) is True  # carry stitched the sequence
+        finally:
+            bc.unregister(sid)
+            for fd in (r, w):
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+            _fresh(sid)
+
+    async def test_last_transition_wins(self):
+        sid = "alt-multi"
+        _fresh(sid)
+        r, w = os.pipe()
+        try:
+            bc.register(sid, r)
+            q = bc.subscribe(sid)
+            await bc.ensure_reader(sid)
+
+            # enter, leave, enter in one chunk → ends in alt screen
+            os.write(w, b"\x1b[?1049h\x1b[?1049l\x1b[?47h")
+            await asyncio.wait_for(q.get(), timeout=2)
+            assert bc.is_in_alt_screen(sid) is True
+        finally:
+            bc.unregister(sid)
+            for fd in (r, w):
+                if fd is not None:
+                    try:
+                        os.close(fd)
+                    except OSError:
+                        pass
+            _fresh(sid)
+
+
 class TestReaderLoop:
     async def test_reader_broadcasts_and_signals_eof(self):
         sid = "reader-pipe"

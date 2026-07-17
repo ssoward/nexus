@@ -152,6 +152,34 @@ class TestLiveLoop:
         assert resizes and resizes[0] == (100, 30)
         assert any('"pong"' in s for s in wsk.sent)
 
+    async def test_alt_screen_replay_repaints_instead_of_raw_dump(self, setup_db, test_user, monkeypatch):
+        """In alt-screen mode, replay must NOT dump the raw ring buffer (which would
+        overlay stale frames); it must SIGWINCH the app to force a clean repaint."""
+        await _insert_session(setup_db, test_user["id"])
+        token = await _issue_token(setup_db, test_user["id"])
+
+        resizes = []
+        monkeypatch.setattr(ws_module.pty_service, "get_fd", lambda sid: 7)
+        monkeypatch.setattr(ws_module.pty_service, "resize", lambda sid, cols, rows: resizes.append((cols, rows)))
+        monkeypatch.setattr(ws_module.pty_broadcaster, "subscribe", lambda sid: asyncio.Queue())
+        monkeypatch.setattr(ws_module.pty_broadcaster, "unsubscribe", lambda sid, q: None)
+        monkeypatch.setattr(ws_module.pty_broadcaster, "is_in_alt_screen", lambda sid: True)
+        raw_calls = []
+        monkeypatch.setattr(ws_module.pty_broadcaster, "get_raw_buffer",
+                            lambda sid: raw_calls.append(sid) or b"SHOULD-NOT-BE-SENT")
+
+        wsk = FakeWebSocket(
+            headers=_proto_headers(token),
+            query_params={"replay": "1"},
+            inbound=[],
+        )
+        await asyncio.wait_for(terminal_ws(wsk, VALID_SID), timeout=5)
+
+        # Raw buffer was never fetched/sent; a repaint SIGWINCH fired at session size
+        assert raw_calls == []
+        assert not any("SHOULD-NOT-BE-SENT" in s for s in wsk.sent)
+        assert resizes and resizes[0] == (80, 24)
+
     async def test_process_exit_notifies_client_and_marks_stopped(self, setup_db, test_user, monkeypatch):
         await _insert_session(setup_db, test_user["id"])
         token = await _issue_token(setup_db, test_user["id"])
