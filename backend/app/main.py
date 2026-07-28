@@ -85,7 +85,14 @@ async def lifespan(app: FastAPI):
     if s.tls_auto_renew and s.tls_domain:
         from app.services.tls_renewal import tls_renewal_loop
         _tls_task = asyncio.create_task(tls_renewal_loop(s.tls_domain, s.tls_cert_dir))
-        logger.info("TLS auto-renewal started for %s", s.tls_domain)
+        logger.info("TLS auto-renewal started for %s (certs in %s)", s.tls_domain, s.tls_cert_dir)
+    elif s.tls_auto_renew:
+        # Asked for renewal but we have no hostname to renew — say so, otherwise
+        # the cert quietly lapses while the config looks correct.
+        logger.warning(
+            "TLS_AUTO_RENEW is set but no cert hostname could be determined "
+            "(set TLS_DOMAIN, NEXUS_HOST, or webauthn.rp_id) — cert will NOT be renewed"
+        )
 
     yield
 

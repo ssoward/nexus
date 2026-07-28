@@ -206,8 +206,19 @@ TLS_AUTO_RENEW=true
 
 The backend then checks the certificate on startup and every 6 hours. Once it has
 under 30 days left, it runs `tailscale cert`, atomically replaces
-`certs/<domain>.{crt,key}`, and reloads Caddy in place. `TLS_DOMAIN` defaults to
-`NEXUS_HOST` — the cert Caddy actually serves — so the flag is normally all you need.
+`certs/<domain>.{crt,key}`, and reloads Caddy in place.
+
+The flag is normally all you need — the hostname to renew is resolved in this order:
+
+1. `TLS_DOMAIN`, if set
+2. `tls.domain` in `config.yml`
+3. `NEXUS_HOST` — what docker-compose names the cert file after
+4. `webauthn.rp_id` — which already has to equal the hostname users reach the app on
+
+Step 4 matters on the primary host, which relies on docker-compose's `NEXUS_HOST`
+default and therefore sets neither of the first three. If no hostname can be
+resolved, the backend logs a warning at startup rather than quietly skipping
+renewal.
 
 To renew by hand instead:
 
@@ -432,7 +443,7 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `WEBAUTHN_ORIGIN` | No | Machine-local WebAuthn origin; overrides `webauthn.origin` in `config.yml` |
 | `CADDY_HOST_PORT` | No | Host port for Caddy (default `443`); use `8443` + `tailscale serve` on macOS/colima |
 | `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
-| `TLS_DOMAIN` | No | Cert hostname to renew (defaults to `NEXUS_HOST`) |
+| `TLS_DOMAIN` | No | Cert hostname to renew (falls back to `NEXUS_HOST`, then `webauthn.rp_id`) |
 | `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
 
 ### `config.yml` — non-secret runtime config
@@ -641,6 +652,19 @@ docker context ls          # confirm the active context's socket path
 Caddy terminates TLS, so while the daemon is down the app is unreachable over
 HTTPS even though the backend itself may be running fine on `127.0.0.1:8000`.
 
+**Docker Desktop runs but there's no socket** — If `docker desktop start` says it's
+already running while `docker context ls` points at a `docker.sock` that doesn't
+exist, Docker Desktop is likely blocked on a GUI dialog:
+
+```
+Docker Desktop requires privileged access to configure privileged port mapping
+```
+
+It needs the admin password typed **on that machine's screen** — SSH can't clear
+it. This is triggered by binding privileged port 443; setting `CADDY_HOST_PORT=8443`
+plus `tailscale serve --tcp=443 tcp://localhost:8443` avoids the prompt entirely.
+Check for it with `pgrep -fl osascript`.
+
 **Database migration error**
 ```bash
 cd backend && DB_PATH=~/.nexus/nexus.db alembic upgrade head
@@ -698,7 +722,13 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 openssl x509 -in certs/<hostname>.crt -noout -dates
 ```
 
-To prevent recurrence set `TLS_AUTO_RENEW=true` in `.env` (see [Renew certificates](#d-renew-certificates)); the background task is **off by default**. Confirm it started by looking for `TLS auto-renewal started for <host>` in the backend log — if that line is absent, the cert is not being renewed.
+To prevent recurrence set `TLS_AUTO_RENEW=true` in `.env` (see [Renew certificates](#d-renew-certificates)); the background task is **off by default**. Confirm it started by looking for this in `~/.nexus/logs/backend.out.log`:
+
+```
+INFO app.main TLS auto-renewal started for <host> (certs in <dir>)
+```
+
+If instead you see `TLS_AUTO_RENEW is set but no cert hostname could be determined`, set `TLS_DOMAIN` explicitly. If neither line appears, the flag isn't reaching the backend — the launchd job sources `.env` from the repo root, so check it's set there and restart with `launchctl kickstart -k gui/$(id -u)/com.nexus.backend`.
 
 ---
 

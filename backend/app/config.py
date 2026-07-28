@@ -129,6 +129,18 @@ class Settings(BaseSettings):
             repo_root = Path(__file__).resolve().parents[2]
             cert_dir = str((repo_root / cert_dir).resolve())
         self.tls_cert_dir = cert_dir
+
+        # The cert to renew is the one Caddy serves. Fall back to NEXUS_HOST
+        # (which docker-compose names the cert file after) and then to rp_id,
+        # which must already equal the hostname users reach the app on. The
+        # primary host leans on docker-compose's NEXUS_HOST default and so sets
+        # neither env var — without the rp_id fallback, auto-renewal there would
+        # silently no-op for want of a domain. "localhost" is the bare default
+        # rather than a real deployment hostname, so it is not a usable fallback.
+        if not self.tls_domain:
+            self.tls_domain = os.getenv("NEXUS_HOST") or (
+                self.rp_id if self.rp_id != "localhost" else ""
+            )
         return self
 
     def __repr__(self) -> str:
@@ -186,13 +198,5 @@ def get_settings() -> Settings:
             env_overrides["rp_name"] = webauthn["rp_name"]
         if webauthn.get("origin") and not os.getenv("WEBAUTHN_ORIGIN"):
             env_overrides["webauthn_origin"] = webauthn["origin"]
-
-    # The cert to renew is always the one Caddy serves, and docker-compose names
-    # that file after NEXUS_HOST. Defaulting to it keeps the two from drifting,
-    # so enabling renewal on a new machine only takes TLS_AUTO_RENEW=true.
-    if not env_overrides.get("tls_domain") and not os.getenv("TLS_DOMAIN"):
-        nexus_host = os.getenv("NEXUS_HOST")
-        if nexus_host:
-            env_overrides["tls_domain"] = nexus_host
 
     return Settings(**env_overrides)

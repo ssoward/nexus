@@ -158,3 +158,45 @@ def test_tls_domain_defaults_to_nexus_host(monkeypatch):
         assert config.get_settings().tls_domain == DOMAIN
     finally:
         config.get_settings.cache_clear()
+
+
+def test_tls_domain_falls_back_to_rp_id(monkeypatch):
+    """The primary host relies on docker-compose's NEXUS_HOST default and so sets
+    neither TLS_DOMAIN nor NEXUS_HOST. Without this fallback, TLS_AUTO_RENEW=true
+    there silently no-ops for want of a domain."""
+    import app.config as config
+
+    config.get_settings.cache_clear()
+    monkeypatch.delenv("TLS_DOMAIN", raising=False)
+    monkeypatch.delenv("NEXUS_HOST", raising=False)
+    monkeypatch.setenv("RP_ID", DOMAIN)
+    try:
+        assert config.get_settings().tls_domain == DOMAIN
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_tls_domain_does_not_fall_back_to_localhost(monkeypatch):
+    """rp_id defaults to "localhost", which is not a cert hostname worth renewing."""
+    import app.config as config
+
+    config.get_settings.cache_clear()
+    monkeypatch.delenv("TLS_DOMAIN", raising=False)
+    monkeypatch.delenv("NEXUS_HOST", raising=False)
+    monkeypatch.delenv("RP_ID", raising=False)
+    try:
+        assert config.get_settings().tls_domain == ""
+    finally:
+        config.get_settings.cache_clear()
+
+
+def test_explicit_tls_domain_wins_over_nexus_host(monkeypatch):
+    import app.config as config
+
+    config.get_settings.cache_clear()
+    monkeypatch.setenv("TLS_DOMAIN", DOMAIN)
+    monkeypatch.setenv("NEXUS_HOST", "other-host.tail00000.ts.net")
+    try:
+        assert config.get_settings().tls_domain == DOMAIN
+    finally:
+        config.get_settings.cache_clear()
