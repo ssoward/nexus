@@ -120,6 +120,15 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def expand_paths(self) -> "Settings":
         self.db_path = os.path.expanduser(self.db_path)
+        # The backend runs with CWD=backend/ (see start.sh), so a relative
+        # cert_dir like the "./certs" default would resolve to backend/certs
+        # rather than the repo-root certs/ that docker-compose mounts into Caddy.
+        # Anchor it to the repo root (this file is backend/app/config.py).
+        cert_dir = os.path.expanduser(self.tls_cert_dir)
+        if not os.path.isabs(cert_dir):
+            repo_root = Path(__file__).resolve().parents[2]
+            cert_dir = str((repo_root / cert_dir).resolve())
+        self.tls_cert_dir = cert_dir
         return self
 
     def __repr__(self) -> str:
@@ -156,7 +165,7 @@ def get_settings() -> Settings:
         if yaml_config.get("presets"):
             env_overrides["presets"] = yaml_config["presets"]
         tls = yaml_config.get("tls", {})
-        if tls.get("domain"):
+        if tls.get("domain") and not os.getenv("TLS_DOMAIN"):
             env_overrides["tls_domain"] = tls["domain"]
         if tls.get("auto_renew") is not None:
             env_overrides["tls_auto_renew"] = tls["auto_renew"]
@@ -177,5 +186,13 @@ def get_settings() -> Settings:
             env_overrides["rp_name"] = webauthn["rp_name"]
         if webauthn.get("origin") and not os.getenv("WEBAUTHN_ORIGIN"):
             env_overrides["webauthn_origin"] = webauthn["origin"]
+
+    # The cert to renew is always the one Caddy serves, and docker-compose names
+    # that file after NEXUS_HOST. Defaulting to it keeps the two from drifting,
+    # so enabling renewal on a new machine only takes TLS_AUTO_RENEW=true.
+    if not env_overrides.get("tls_domain") and not os.getenv("TLS_DOMAIN"):
+        nexus_host = os.getenv("NEXUS_HOST")
+        if nexus_host:
+            env_overrides["tls_domain"] = nexus_host
 
     return Settings(**env_overrides)

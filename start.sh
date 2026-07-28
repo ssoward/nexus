@@ -51,10 +51,36 @@ if [[ ! -d "$FRONTEND_DIR/dist" ]]; then
 fi
 
 # ── 4. Start Caddy (static + proxy) ──────────────────────────────────────────
+# The Docker daemon has to be reachable before `docker compose` will do anything
+# useful. On macOS the daemon lives in a colima VM that does not survive a
+# reboot, so start it here rather than failing with a raw socket error.
+if ! docker info >/dev/null 2>&1; then
+  if command -v colima >/dev/null 2>&1 && [[ "$(colima status 2>&1)" == *"not running"* ]]; then
+    echo "Docker daemon unreachable; starting colima..."
+    colima start
+  fi
+
+  if ! docker info >/dev/null 2>&1; then
+    echo "ERROR: cannot reach the Docker daemon — Caddy (TLS + proxy) cannot start." >&2
+    echo "  Start it with 'colima start' (macOS) or by launching Docker Desktop," >&2
+    echo "  then re-run ./start.sh. Check 'docker context ls' if the socket path looks wrong." >&2
+    exit 1
+  fi
+fi
+
 echo "Starting Caddy..."
 docker compose up -d --remove-orphans
 
 # ── 5. Start backend on host ─────────────────────────────────────────────────
+# A backend from a previous run keeps port 8000, and uvicorn's bind error is easy
+# to miss when it scrolls past. Say so plainly instead.
+if lsof -nP -iTCP:8000 -sTCP:LISTEN >/dev/null 2>&1; then
+  echo "ERROR: port 8000 is already in use — a Nexus backend is probably still running." >&2
+  echo "  Inspect it with: lsof -nP -iTCP:8000 -sTCP:LISTEN" >&2
+  echo "  Caddy is up, so if that process is healthy the app is already served." >&2
+  exit 1
+fi
+
 echo "Starting Nexus backend on port 8000..."
 cd "$BACKEND_DIR"
 exec uvicorn app.main:app --host 127.0.0.1 --port 8000 --log-level info

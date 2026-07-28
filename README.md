@@ -197,13 +197,29 @@ your-machine.tail12345.ts.net {
 
 #### d. Renew certificates
 
-Tailscale certificates expire every ~90 days. Renew with:
+Tailscale certificates expire every ~90 days. Enable auto-renewal so this is handled for you:
 
 ```bash
-sudo tailscale cert <hostname>.tail<id>.ts.net
+# .env
+TLS_AUTO_RENEW=true
+```
+
+The backend then checks the certificate on startup and every 6 hours. Once it has
+under 30 days left, it runs `tailscale cert`, atomically replaces
+`certs/<domain>.{crt,key}`, and reloads Caddy in place. `TLS_DOMAIN` defaults to
+`NEXUS_HOST` — the cert Caddy actually serves — so the flag is normally all you need.
+
+To renew by hand instead:
+
+```bash
+tailscale cert <hostname>.tail<id>.ts.net
 cp <new files> certs/
 docker compose restart caddy
 ```
+
+On macOS `tailscale cert` does not require `sudo`, and the CLI is not on `PATH` —
+it lives at `/Applications/Tailscale.app/Contents/MacOS/Tailscale`. Auto-renewal
+resolves that path itself, so it also works under launchd.
 
 ### 4. Build frontend
 
@@ -415,6 +431,9 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `RP_ID` | No | Machine-local WebAuthn relying-party ID; overrides `webauthn.rp_id` in `config.yml` |
 | `WEBAUTHN_ORIGIN` | No | Machine-local WebAuthn origin; overrides `webauthn.origin` in `config.yml` |
 | `CADDY_HOST_PORT` | No | Host port for Caddy (default `443`); use `8443` + `tailscale serve` on macOS/colima |
+| `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
+| `TLS_DOMAIN` | No | Cert hostname to renew (defaults to `NEXUS_HOST`) |
+| `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
 
 ### `config.yml` — non-secret runtime config
 
@@ -596,9 +615,31 @@ KeyError: 'APP_SECRET'
 Make sure `.env` exists and is sourced: `source .env`
 
 **Port 8000 in use**
+
+`start.sh` stops with this before launching uvicorn when a backend from an earlier
+run still holds the port. Identify it, and kill it only if it isn't the live app:
+
 ```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+curl -s http://127.0.0.1:8000/api/health     # healthy? Caddy is already serving it
 lsof -ti:8000 | xargs kill
 ```
+
+**Docker daemon unreachable**
+```
+unable to get image 'caddy:2.8-alpine': failed to connect to the docker API at
+unix:///Users/<you>/.colima/default/docker.sock ... no such file or directory
+```
+The Docker context points at a colima VM that isn't running — colima does not
+survive a reboot. `start.sh` now starts it automatically; to do it by hand:
+
+```bash
+colima status && colima start
+docker context ls          # confirm the active context's socket path
+```
+
+Caddy terminates TLS, so while the daemon is down the app is unreachable over
+HTTPS even though the backend itself may be running fine on `127.0.0.1:8000`.
 
 **Database migration error**
 ```bash
@@ -651,7 +692,13 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 
 **Browser refuses to connect** — Run `tailscale cert` and copy the cert + key into `certs/`. Tailscale `.ts.net` domains require HTTPS (HSTS preloaded).
 
-**Certificate expired** — Renew with `sudo tailscale cert <hostname>`, copy to `certs/`, then `docker compose restart caddy`. Nexus's background task also checks every 6 hours.
+**Certificate expired** — Renew with `tailscale cert <hostname>`, copy to `certs/`, then `docker compose restart caddy`. Check the dates on the installed cert with:
+
+```bash
+openssl x509 -in certs/<hostname>.crt -noout -dates
+```
+
+To prevent recurrence set `TLS_AUTO_RENEW=true` in `.env` (see [Renew certificates](#d-renew-certificates)); the background task is **off by default**. Confirm it started by looking for `TLS auto-renewal started for <host>` in the backend log — if that line is absent, the cert is not being renewed.
 
 ---
 
