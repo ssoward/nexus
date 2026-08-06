@@ -1,5 +1,8 @@
-# Secrets — never commit
+# Secrets — never commit. The .bak glob covers the dated backups start.sh and
+# the secret-rotation steps leave behind (e.g. .env.bak-20260728); those hold
+# live APP_SECRET/JWT_SECRET/SMTP_PASSWORD values and must never be staged.
 .env
+.env.bak*
 
 # TLS certificates
 certs/
