@@ -294,6 +294,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Or run `./start.sh` from the repo root — it handles venv, frontend build, Docker, and backend in one command.
+It is safe to re-run: the frontend rebuilds only when a build input is newer than the last build, the Docker
+daemon is launched if it isn't already up, and a healthy backend already on port 8000 is left running.
 
 #### Running without Caddy (development)
 
@@ -442,6 +444,7 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `RP_ID` | No | Machine-local WebAuthn relying-party ID; overrides `webauthn.rp_id` in `config.yml` |
 | `WEBAUTHN_ORIGIN` | No | Machine-local WebAuthn origin; overrides `webauthn.origin` in `config.yml` |
 | `CADDY_HOST_PORT` | No | Host port for Caddy (default `443`); use `8443` + `tailscale serve` on macOS/colima |
+| `DOCKER_WAIT_SECS` | No | How long `start.sh` waits for a daemon it just launched (default `90`); raise it on slow machines |
 | `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
 | `TLS_DOMAIN` | No | Cert hostname to renew (falls back to `NEXUS_HOST`, then `webauthn.rp_id`) |
 | `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
@@ -627,8 +630,11 @@ Make sure `.env` exists and is sourced: `source .env`
 
 **Port 8000 in use**
 
-`start.sh` stops with this before launching uvicorn when a backend from an earlier
-run still holds the port. Identify it, and kill it only if it isn't the live app:
+`start.sh` probes `/api/health` before launching uvicorn. If a healthy Nexus
+already holds the port it reports that and exits `0` — re-running the script is a
+no-op, not a failure. It stops with an error only when the port is held by
+something that does not answer the health check. Identify that process, and kill
+it only if it isn't the live app:
 
 ```bash
 lsof -nP -iTCP:8000 -sTCP:LISTEN
@@ -641,13 +647,21 @@ lsof -ti:8000 | xargs kill
 unable to get image 'caddy:2.8-alpine': failed to connect to the docker API at
 unix:///Users/<you>/.colima/default/docker.sock ... no such file or directory
 ```
-The Docker context points at a colima VM that isn't running — colima does not
-survive a reboot. `start.sh` now starts it automatically; to do it by hand:
+The Docker context points at a runtime that isn't running — neither colima nor
+Docker Desktop survives a reboot. `start.sh` starts whichever is installed
+(colima first, then Docker Desktop on macOS) and waits up to `DOCKER_WAIT_SECS`
+for the socket, because `open -a Docker` returns long before the daemon accepts
+connections. To do it by hand:
 
 ```bash
-colima status && colima start
-docker context ls          # confirm the active context's socket path
+colima status && colima start      # colima
+open -a Docker                     # Docker Desktop (macOS)
+sudo systemctl start docker        # Linux
+docker context ls                  # confirm the active context's socket path
 ```
+
+On Linux `start.sh` does not start the daemon for you — it prints the
+`systemctl` command rather than assume `sudo`.
 
 Caddy terminates TLS, so while the daemon is down the app is unreachable over
 HTTPS even though the backend itself may be running fine on `127.0.0.1:8000`.
