@@ -658,6 +658,25 @@ KeyError: 'APP_SECRET'
 ```
 Make sure `.env` exists and is sourced: `source .env`
 
+**Broken venv interpreter**
+```
+python: posix_spawn: .../Python.framework/Versions/3.14/Resources/Python.app/... : Undefined error: 0
+```
+A venv keeps an absolute path to the interpreter that created it, so upgrading or
+relocating that Python (a Homebrew bump, say) leaves `backend/.venv` pointing at a
+binary that no longer exists. Nothing inside the venv is salvageable — rebuild it
+against any Python 3.11+:
+
+```bash
+rm -rf backend/.venv
+python3 -m venv backend/.venv                                   # or an explicit 3.12/3.13 binary
+backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+backend/.venv/bin/python -m pytest -q                           # confirm before relaunching
+```
+
+Verify the base interpreter itself works first (`python3 -V`) — if that errors the
+same way, the venv is a symptom and the Python install is the problem.
+
 **Port 8000 in use**
 
 `start.sh` probes `/api/health` before launching uvicorn. If a healthy Nexus
@@ -759,6 +778,28 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 ### TLS / HTTPS
 
 **Browser refuses to connect** — Run `tailscale cert` and copy the cert + key into `certs/`. Tailscale `.ts.net` domains require HTTPS (HSTS preloaded).
+
+**Tailscale unreachable — the network is blocking it.** On a managed or corporate
+network, Tailscale may be blocked by hostname rather than by port, which looks like a
+Tailscale bug but isn't. The signature is a TCP connection that succeeds and is then
+reset during the TLS handshake:
+
+```bash
+nc -z controlplane.tailscale.com 443      # succeeds — not a port or route block
+curl -sS https://controlplane.tailscale.com/health
+#   curl: (35) Recv failure: Connection reset by peer
+curl -sS -o /dev/null -w '%{http_code}\n' https://github.com/     # 200 — egress is fine
+```
+
+If the control plane, `login`, and `derp*` hosts all reset while unrelated HTTPS
+succeeds, a middlebox is matching on SNI. Nothing client-side fixes this: a
+userspace `tailscaled` (no root needed) and a Tailscale container both fail the same
+way, because neither can reach the control plane or fall back to a DERP relay. The
+machine cannot join the tailnet, so `tailscale cert`, `tailscale serve`, and every
+`*.ts.net` hostname are unavailable — ask whoever manages the network for a
+sanctioned route. To run Nexus anyway, use the
+[localhost-only mode](#running-without-docker-caddy-or-tailscale), which needs
+neither Tailscale nor Docker.
 
 **Certificate expired** — Renew with `tailscale cert <hostname>`, copy to `certs/`, then `docker compose restart caddy`. Check the dates on the installed cert with:
 
