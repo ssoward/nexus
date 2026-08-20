@@ -104,8 +104,8 @@ One asyncio reader task per session fans PTY output to N subscriber queues (one 
 |------|---------|-------|
 | Python | 3.11+ | Backend |
 | Node.js | 18+ | Frontend build |
-| Docker + Compose | any recent | Caddy only — [Colima](https://github.com/abiosoft/colima) (free) recommended over Docker Desktop |
-| Tailscale | any | For HTTPS via `.ts.net` cert |
+| Docker + Compose | any recent | Caddy only — [Colima](https://github.com/abiosoft/colima) (free) recommended over Docker Desktop. Not needed for a [localhost-only run](#running-without-docker-caddy-or-tailscale) |
+| Tailscale | any | For HTTPS via `.ts.net` cert. Not needed for a [localhost-only run](#running-without-docker-caddy-or-tailscale) |
 | `openssl` | system | Secret generation |
 
 ---
@@ -297,12 +297,42 @@ Or run `./start.sh` from the repo root — it handles venv, frontend build, Dock
 It is safe to re-run: the frontend rebuilds only when a build input is newer than the last build, the Docker
 daemon is launched if it isn't already up, and a healthy backend already on port 8000 is left running.
 
-#### Running without Caddy (development)
+#### Running without Docker, Caddy, or Tailscale
+
+On hosts where Docker and the Tailscale system extension can't be installed (an MDM/Jamf-managed Mac, for
+instance), Nexus can run entirely on plain `http://localhost:8000` — uvicorn serves the built UI itself, so
+Caddy is not needed to put the app on an origin:
 
 ```bash
-export STATIC_DIR="$PWD/frontend/dist"
-# Backend serves the SPA directly at http://localhost:8000
+./scripts/nexus-local.sh
 ```
+
+The script loads `.env`, points `CONFIG_PATH` at `config.yml`, sets `STATIC_DIR` so the SPA is served from
+`static/`, and execs uvicorn on `127.0.0.1:8000`. Like `start.sh`, it is safe to re-run: a healthy backend
+already on the port is left alone, and anything else holding the port is reported rather than worked around.
+Override the bind with `NEXUS_BIND_HOST` / `NEXUS_BIND_PORT`.
+
+It requires two machine-local settings in `.env` so WebAuthn and TLS renewal don't reach for the tailnet
+hostname in `config.yml`:
+
+```bash
+# .env (machine-local)
+RP_ID=localhost
+WEBAUTHN_ORIGIN=http://localhost:8000
+```
+
+With `rp_id` left at `localhost`, `tls_domain` resolves empty and TLS auto-renewal stays off, so the backend
+never invokes the `tailscale` CLI. Everything is same-origin on `:8000`, which satisfies the app's
+`connect-src 'self'` CSP for both the relative `/api` calls and the `ws://` terminal upgrade.
+
+Three caveats specific to this mode:
+
+- **Use Chrome or Firefox, not Safari.** The session cookie is set `Secure`, and only browsers that treat
+  `localhost` as a trustworthy origin will store it over plain HTTP. Chrome and Firefox do; Safari does not,
+  so login there appears to succeed but never persists. Front the app with a real HTTPS cert if you need Safari.
+- **Email-OTP MFA is unavailable** unless `SMTP_*` is configured — enrol TOTP (or a passkey, which works on
+  `localhost` since browsers treat it as a secure context).
+- **No remote access.** The backend binds loopback only; this is a single-machine setup with no tailnet.
 
 ### Run as a macOS menu bar app (launch at login)
 
