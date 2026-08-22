@@ -104,8 +104,8 @@ One asyncio reader task per session fans PTY output to N subscriber queues (one 
 |------|---------|-------|
 | Python | 3.11+ | Backend |
 | Node.js | 18+ | Frontend build |
-| Docker + Compose | any recent | Caddy only — [Colima](https://github.com/abiosoft/colima) (free) recommended over Docker Desktop |
-| Tailscale | any | For HTTPS via `.ts.net` cert |
+| Docker + Compose | any recent | Caddy only — [Colima](https://github.com/abiosoft/colima) (free) recommended over Docker Desktop. Not needed for a [localhost-only run](#running-without-docker-caddy-or-tailscale) |
+| Tailscale | any | For HTTPS via `.ts.net` cert. Not needed for a [localhost-only run](#running-without-docker-caddy-or-tailscale) |
 | `openssl` | system | Secret generation |
 
 ---
@@ -294,13 +294,45 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
 
 Or run `./start.sh` from the repo root — it handles venv, frontend build, Docker, and backend in one command.
+It is safe to re-run: the frontend rebuilds only when a build input is newer than the last build, the Docker
+daemon is launched if it isn't already up, and a healthy backend already on port 8000 is left running.
 
-#### Running without Caddy (development)
+#### Running without Docker, Caddy, or Tailscale
+
+On hosts where Docker and the Tailscale system extension can't be installed (an MDM/Jamf-managed Mac, for
+instance), Nexus can run entirely on plain `http://localhost:8000` — uvicorn serves the built UI itself, so
+Caddy is not needed to put the app on an origin:
 
 ```bash
-export STATIC_DIR="$PWD/frontend/dist"
-# Backend serves the SPA directly at http://localhost:8000
+./scripts/nexus-local.sh
 ```
+
+The script loads `.env`, points `CONFIG_PATH` at `config.yml`, sets `STATIC_DIR` so the SPA is served from
+`static/`, and execs uvicorn on `127.0.0.1:8000`. Like `start.sh`, it is safe to re-run: a healthy backend
+already on the port is left alone, and anything else holding the port is reported rather than worked around.
+Override the bind with `NEXUS_BIND_HOST` / `NEXUS_BIND_PORT`.
+
+It requires two machine-local settings in `.env` so WebAuthn and TLS renewal don't reach for the tailnet
+hostname in `config.yml`:
+
+```bash
+# .env (machine-local)
+RP_ID=localhost
+WEBAUTHN_ORIGIN=http://localhost:8000
+```
+
+With `rp_id` left at `localhost`, `tls_domain` resolves empty and TLS auto-renewal stays off, so the backend
+never invokes the `tailscale` CLI. Everything is same-origin on `:8000`, which satisfies the app's
+`connect-src 'self'` CSP for both the relative `/api` calls and the `ws://` terminal upgrade.
+
+Three caveats specific to this mode:
+
+- **Use Chrome or Firefox, not Safari.** The session cookie is set `Secure`, and only browsers that treat
+  `localhost` as a trustworthy origin will store it over plain HTTP. Chrome and Firefox do; Safari does not,
+  so login there appears to succeed but never persists. Front the app with a real HTTPS cert if you need Safari.
+- **Email-OTP MFA is unavailable** unless `SMTP_*` is configured — enrol TOTP (or a passkey, which works on
+  `localhost` since browsers treat it as a secure context).
+- **No remote access.** The backend binds loopback only; this is a single-machine setup with no tailnet.
 
 ### Run as a macOS menu bar app (launch at login)
 
@@ -444,6 +476,7 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `RP_ID` | No | Machine-local WebAuthn relying-party ID; overrides `webauthn.rp_id` in `config.yml` |
 | `WEBAUTHN_ORIGIN` | No | Machine-local WebAuthn origin; overrides `webauthn.origin` in `config.yml` |
 | `CADDY_HOST_PORT` | No | Host port for Caddy (default `443`); use `8443` + `tailscale serve` on macOS/colima |
+| `DOCKER_WAIT_SECS` | No | How long `start.sh` waits for a daemon it just launched (default `90`); raise it on slow machines |
 | `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
 | `TLS_DOMAIN` | No | Cert hostname to renew (falls back to `NEXUS_HOST`, then `webauthn.rp_id`) |
 | `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
@@ -627,10 +660,32 @@ KeyError: 'APP_SECRET'
 ```
 Make sure `.env` exists and is sourced: `source .env`
 
+**Broken venv interpreter**
+```
+python: posix_spawn: .../Python.framework/Versions/3.14/Resources/Python.app/... : Undefined error: 0
+```
+A venv keeps an absolute path to the interpreter that created it, so upgrading or
+relocating that Python (a Homebrew bump, say) leaves `backend/.venv` pointing at a
+binary that no longer exists. Nothing inside the venv is salvageable — rebuild it
+against any Python 3.11+:
+
+```bash
+rm -rf backend/.venv
+python3 -m venv backend/.venv                                   # or an explicit 3.12/3.13 binary
+backend/.venv/bin/pip install -r backend/requirements.txt -r backend/requirements-dev.txt
+backend/.venv/bin/python -m pytest -q                           # confirm before relaunching
+```
+
+Verify the base interpreter itself works first (`python3 -V`) — if that errors the
+same way, the venv is a symptom and the Python install is the problem.
+
 **Port 8000 in use**
 
-`start.sh` stops with this before launching uvicorn when a backend from an earlier
-run still holds the port. Identify it, and kill it only if it isn't the live app:
+`start.sh` probes `/api/health` before launching uvicorn. If a healthy Nexus
+already holds the port it reports that and exits `0` — re-running the script is a
+no-op, not a failure. It stops with an error only when the port is held by
+something that does not answer the health check. Identify that process, and kill
+it only if it isn't the live app:
 
 ```bash
 lsof -nP -iTCP:8000 -sTCP:LISTEN
@@ -643,13 +698,21 @@ lsof -ti:8000 | xargs kill
 unable to get image 'caddy:2.8-alpine': failed to connect to the docker API at
 unix:///Users/<you>/.colima/default/docker.sock ... no such file or directory
 ```
-The Docker context points at a colima VM that isn't running — colima does not
-survive a reboot. `start.sh` now starts it automatically; to do it by hand:
+The Docker context points at a runtime that isn't running — neither colima nor
+Docker Desktop survives a reboot. `start.sh` starts whichever is installed
+(colima first, then Docker Desktop on macOS) and waits up to `DOCKER_WAIT_SECS`
+for the socket, because `open -a Docker` returns long before the daemon accepts
+connections. To do it by hand:
 
 ```bash
-colima status && colima start
-docker context ls          # confirm the active context's socket path
+colima status && colima start      # colima
+open -a Docker                     # Docker Desktop (macOS)
+sudo systemctl start docker        # Linux
+docker context ls                  # confirm the active context's socket path
 ```
+
+On Linux `start.sh` does not start the daemon for you — it prints the
+`systemctl` command rather than assume `sudo`.
 
 Caddy terminates TLS, so while the daemon is down the app is unreachable over
 HTTPS even though the backend itself may be running fine on `127.0.0.1:8000`.
@@ -717,6 +780,28 @@ sqlite3 ~/.nexus/nexus.db "UPDATE users SET mfa_method = NULL, encrypted_totp_se
 ### TLS / HTTPS
 
 **Browser refuses to connect** — Run `tailscale cert` and copy the cert + key into `certs/`. Tailscale `.ts.net` domains require HTTPS (HSTS preloaded).
+
+**Tailscale unreachable — the network is blocking it.** On a managed or corporate
+network, Tailscale may be blocked by hostname rather than by port, which looks like a
+Tailscale bug but isn't. The signature is a TCP connection that succeeds and is then
+reset during the TLS handshake:
+
+```bash
+nc -z controlplane.tailscale.com 443      # succeeds — not a port or route block
+curl -sS https://controlplane.tailscale.com/health
+#   curl: (35) Recv failure: Connection reset by peer
+curl -sS -o /dev/null -w '%{http_code}\n' https://github.com/     # 200 — egress is fine
+```
+
+If the control plane, `login`, and `derp*` hosts all reset while unrelated HTTPS
+succeeds, a middlebox is matching on SNI. Nothing client-side fixes this: a
+userspace `tailscaled` (no root needed) and a Tailscale container both fail the same
+way, because neither can reach the control plane or fall back to a DERP relay. The
+machine cannot join the tailnet, so `tailscale cert`, `tailscale serve`, and every
+`*.ts.net` hostname are unavailable — ask whoever manages the network for a
+sanctioned route. To run Nexus anyway, use the
+[localhost-only mode](#running-without-docker-caddy-or-tailscale), which needs
+neither Tailscale nor Docker.
 
 **Certificate expired** — Renew with `tailscale cert <hostname>`, copy to `certs/`, then `docker compose restart caddy`. Check the dates on the installed cert with:
 
