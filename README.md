@@ -388,6 +388,8 @@ bash macos/install-backend-agent.sh
 
 This renders and bootstraps `com.nexus.backend` (running `scripts/nexus-backend.sh`, which sources `.env`, sets `CONFIG_PATH`, and execs uvicorn on `127.0.0.1:8000`). It boots out any prior copy and kills a stray hand-launched uvicorn first so the port is handed cleanly to the supervised process. Logs: `~/.nexus/logs/backend.{out,err}.log`. Verify with `launchctl print gui/$(id -u)/com.nexus.backend | grep -i state` and `curl -fsS http://127.0.0.1:8000/api/health`. Do **not** run this alongside the full `com.nexus.stack` agent — both bind `:8000`.
 
+> **Reboot resilience note:** `com.nexus.backend`'s `KeepAlive`/`RunAtLoad` only covers uvicorn — the independently-run Caddy container is Docker Desktop's responsibility, and Docker Desktop does **not** start at login by default. Enable **Docker Desktop → Settings → General → "Start Docker Desktop when you sign in"** (or check the `AutoStart` key in `~/Library/Group Containers/group.com.docker/settings-store.json`), otherwise a reboot leaves the backend healthy but unreachable — Caddy simply never comes back.
+
 ### 7. Create your account
 
 ```bash
