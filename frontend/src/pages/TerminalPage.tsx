@@ -180,7 +180,11 @@ export function TerminalPage() {
 
       {/* ── Main area ── */}
       <div className="flex flex-col flex-1 min-w-0">
-        <header className="flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-terminal-border shrink-0 overflow-x-hidden min-w-0">
+        {/* flex-wrap, not overflow-hidden: every control here is shrink-0, so a
+            clipped row silently swallows the trailing ones (Sign out) once the
+            display zoom makes them wider than the viewport. Wrapping costs a
+            little height but keeps every action reachable at any scale. */}
+        <header className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 bg-[#161b22] border-b border-terminal-border shrink-0 min-w-0">
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen((v) => !v)}
@@ -228,7 +232,7 @@ export function TerminalPage() {
             )}
           </div>
 
-          <span className="font-mono text-sm text-terminal-fg/60 flex-1 truncate">
+          <span className="font-mono text-sm text-terminal-fg/60 flex-1 min-w-0 basis-0 truncate">
             Nexus — <span className="text-terminal-fg/40">{running.length} running</span>
           </span>
 
