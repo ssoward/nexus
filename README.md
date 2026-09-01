@@ -36,7 +36,7 @@ Typical uses:
 - **Draggable resize handles** — drag the sidebar's right edge to resize it (160–520 px); drag the divider between the terminal area and an embedded page to adjust the split (20–80%); desktop only; all sidebar tab panels (Sessions, Orchestrator, Pages) fill the resized width
 - **Build version badge** — commit hash and UTC build timestamp displayed in the bottom-left corner on desktop for instant deploy verification
 - **Multi-tab support** — open the same session in multiple browser tabs; all tabs share one PTY reader
-- **Display zoom (A− / A+)** — header controls scale the entire interface *and* the terminal font together for small or high-density screens; `Ctrl`/`Cmd` `+` `−` step it, `Ctrl`/`Cmd` `0` resets, and the click-to-reset percentage sits between the buttons. Interface scale (80–200%) and terminal font size (8–28 px) can also be set independently in Settings → Display. Saved per device in local storage; the terminal refits and re-reports its column/row count to the PTY on every change. The header wraps rather than clipping, so no action (including Sign out) is pushed off-screen at high zoom
+- **Display zoom (A− / A+)** — scale the whole interface *and* the terminal font for small or high-density screens: header buttons, `Ctrl`/`Cmd` `+` `−` `0`, or independent interface/terminal controls in Settings → Display. Persisted per device; the terminal refits and re-reports its geometry to the PTY on every change. See [Display & Accessibility](#display--accessibility)
 - **Output history on attach** — opening an already-running session replays the server-side ring buffer (up to 512 KB of recent output), tmux-attach style, so you see what happened before you connected — from any device or tab. Full-screen TUIs that use the alternate screen buffer (Claude Code, vim, less) are detected and *not* raw-replayed — the backend instead nudges the app to emit one clean full repaint via `SIGWINCH`, avoiding the "old text bleeding under the new prompt" overlay that raw replay of alt-screen frames causes (desktop and mobile alike)
 - **Session recovery** — enabled via `recovery.enabled` in `config.yml`: on graceful shutdown, ring buffers are serialized (AES-GCM encrypted at rest) to `~/.nexus/recovery.enc`. After a restart those sessions show a `recovering` badge and are re-spawned **lazily on their first reconnect** — simply reopening the app re-attaches each one (its PTY respawns and buffered output replays, within `recovery.ttl_hours`) and flips it back to `running`. Scrollback often contains secrets, so the file is encrypted with the app's derived key and written `0600`.
 - **Visibility-triggered reconnect** — returning from a backgrounded tab automatically reconnects WebSocket and replays missed output
@@ -525,6 +525,61 @@ Secrets must **never** appear in `config.yml`. The config loader rejects any key
 
 ---
 
+## Display & Accessibility
+
+Nexus can scale its entire interface — chrome *and* terminal text — for small
+phones, high-density displays, or anyone who just wants larger type. The
+setting is stored per device and survives reloads and restarts.
+
+### Controls
+
+| Where | Action |
+|-------|--------|
+| Header | `A−` / `A+` step the zoom; the percentage between them resets to 100% (hidden on mobile, where header space is tight) |
+| Keyboard | `Ctrl`/`Cmd` `+` and `Ctrl`/`Cmd` `−` step; `Ctrl`/`Cmd` `0` resets |
+| Settings → Display | Interface scale and terminal font size adjusted **independently**, plus a reset |
+
+### Ranges
+
+| Setting | Range | Default |
+|---------|-------|---------|
+| Interface scale | 80–200% (10% steps) | 100% |
+| Terminal font size | 8–28 px (1 px steps) | 14 px desktop, 10 px on touch devices |
+
+The header `A−`/`A+` buttons and the keyboard shortcuts move **both** knobs
+together — one notch of scale plus one pixel of font — because scaling only the
+chrome or only the terminal leaves half the screen unreadable. Settings →
+Display exists for the cases where you want them decoupled (e.g. a large
+terminal font with compact chrome).
+
+### How it works
+
+- **Interface scale** sets the `<html>` font size (`16px × scale`). Every
+  rem-based Tailwind size in the app inherits from it, so layout, spacing and
+  tap targets all scale natively — no CSS transform, so nothing blurs and
+  scrolling/hit-testing stay correct.
+- **Terminal font size** is applied to xterm.js via `terminal.options.fontSize`.
+  xterm measures its own glyph cell and cannot inherit a rem, so it is carried
+  as a separate px value. On every change the pane refits and sends the new
+  column/row count to the PTY, so full-screen TUIs (Claude Code, vim, htop)
+  reflow correctly instead of rendering at the old geometry.
+- **Persistence** is a single `nexus.display` key in `localStorage`. Corrupt,
+  missing, or out-of-range values fall back to the defaults rather than
+  breaking the app, and a write failure (private browsing, quota) degrades to
+  "works but does not persist" instead of throwing.
+- **Keyboard shortcuts** are captured on `window` in the capture phase and stop
+  propagation, so `Ctrl`/`Cmd` `+` never reaches xterm and is never forwarded
+  to the PTY as input. Unmodified `+`/`−` and `Alt` combinations are ignored
+  and pass through to the shell as normal.
+
+> **Note on the header:** the header wraps to a second row rather than clipping.
+> Every control in it is fixed-width, so a non-wrapping row silently hid the
+> trailing controls (`Sign out` first) once zoom made them wider than the
+> viewport. Wrapping costs a little height at high zoom but keeps every action
+> reachable. This is covered by `scripts/tests/test_header_layout.sh`.
+
+---
+
 ## API Reference
 
 All API routes are under `/api/`.
@@ -938,6 +993,17 @@ pytest --cov=app --cov-report=term-missing
 # Frontend
 cd frontend
 npm test
+
+# Header layout regression check (needs a real browser — jsdom has no layout
+# engine). Reads the live header classes from TerminalPage.tsx and asserts the
+# trailing controls stay on-screen at up to 200% zoom on a 320px viewport.
+# Skips cleanly if Chrome or frontend/dist is missing; CHROME_BIN overrides the
+# browser path.
+cd frontend && npm run build && cd ..
+./scripts/tests/test_header_layout.sh
+
+# Shell helper library
+./scripts/tests/test_nexus_lib.sh
 ```
 
 Both suites run on every push via GitHub Actions (`.github/workflows/test.yml`).
@@ -952,6 +1018,8 @@ nexus/
 ├── start.sh                   # One-command start script
 ├── wctl.py                    # Orchestration CLI
 ├── docs/                      # Screenshots and documentation assets
+├── scripts/
+│   └── tests/                 # Shell tests + headless-browser header layout check
 ├── backend/
 │   ├── app/
 │   │   ├── main.py            # FastAPI app, lifespan, middleware
@@ -978,10 +1046,11 @@ nexus/
     ├── components/
     │   ├── auth/              # LoginForm (multi-step MFA), TotpSetupModal
     │   ├── terminal/          # TerminalPane, TerminalGrid, PriorityLayout, MobileKeybar
-    │   └── ui/                # SessionList, OrchestratorPanel, PageList, HelpModal
-    ├── hooks/                 # useAuth, useTerminalSocket, useVisibilityReconnect, …
+    │   └── ui/                # SessionList, OrchestratorPanel, PageList, HelpModal,
+    │                          #   SettingsPanel, DisplayScaleControls
+    ├── hooks/                 # useAuth, useTerminalSocket, useDisplayScale, …
     ├── pages/                 # LoginPage, TerminalPage, RecoveryPage
-    └── store/                 # Zustand: authStore, sessionStore
+    └── store/                 # Zustand: authStore, sessionStore, displayStore
 ```
 
 ---
