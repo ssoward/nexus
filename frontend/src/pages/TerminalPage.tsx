@@ -8,6 +8,7 @@ import { SettingsPanel } from '@/components/ui/SettingsPanel'
 import { EmbeddedPage } from '@/components/ui/EmbeddedPage'
 import { TotpSetupModal } from '@/components/auth/TotpSetupModal'
 import { HelpModal } from '@/components/ui/HelpModal'
+import { DisplayScaleControls } from '@/components/ui/DisplayScaleControls'
 import type { EmbeddedPage as EmbeddedPageType } from '@/types/page'
 import { useSession } from '@/hooks/useSession'
 import { useAuth } from '@/hooks/useAuth'
@@ -138,25 +139,25 @@ export function TerminalPage() {
         <div className="flex border-b border-terminal-border shrink-0">
           <button
             onClick={() => setSidebarTab('sessions')}
-            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'sessions' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[0.625rem]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'sessions' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Sessions
           </button>
           <button
             onClick={() => setSidebarTab('orchestrator')}
-            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'orchestrator' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[0.625rem]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'orchestrator' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Orch
           </button>
           <button
             onClick={() => setSidebarTab('pages')}
-            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'pages' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[0.625rem]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'pages' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Pages
           </button>
           <button
             onClick={() => setSidebarTab('settings')}
-            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'settings' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
+            className={`flex-1 py-1.5 ${isMobile ? 'text-xs' : 'text-[0.625rem]'} font-mono uppercase tracking-wider transition-colors ${sidebarTab === 'settings' ? 'text-terminal-active border-b border-terminal-active' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           >
             Settings
           </button>
@@ -231,6 +232,8 @@ export function TerminalPage() {
             Nexus — <span className="text-terminal-fg/40">{running.length} running</span>
           </span>
 
+          <DisplayScaleControls compact={isMobile} />
+
           <button
             onClick={() => window.location.reload()}
             className="p-1.5 rounded text-terminal-fg/40 hover:text-terminal-fg hover:bg-terminal-border transition-colors shrink-0"
@@ -295,7 +298,7 @@ export function TerminalPage() {
                 href={activePage.url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-[10px] font-mono text-terminal-active hover:underline shrink-0"
+                className="text-[0.625rem] font-mono text-terminal-active hover:underline shrink-0"
               >
                 Open in browser
               </a>
@@ -340,7 +343,7 @@ export function TerminalPage() {
       </div>
       {/* ── Version badge ── */}
       {!isMobile && (
-        <div className="fixed bottom-1 left-1 text-[9px] font-mono text-terminal-fg/20 pointer-events-none select-none z-50">
+        <div className="fixed bottom-1 left-1 text-[0.5625rem] font-mono text-terminal-fg/20 pointer-events-none select-none z-50">
           {__COMMIT__} · {__BUILD_TIME__}
         </div>
       )}

@@ -12,7 +12,7 @@ export function EmbeddedPage({ url, name }: Props) {
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-auto text-[10px] text-terminal-active hover:underline shrink-0"
+          className="ml-auto text-[0.625rem] text-terminal-active hover:underline shrink-0"
         >
           Open in new tab
         </a>

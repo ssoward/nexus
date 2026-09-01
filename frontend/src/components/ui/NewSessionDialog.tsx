@@ -82,7 +82,7 @@ export function NewSessionDialog({ onConfirm, onClose, maxReached }: Props) {
               ))}
             </select>
             {PRESET_MAP[image] && (
-              <p className="mt-1 text-[10px] font-mono text-terminal-fg/40">{PRESET_MAP[image].description}</p>
+              <p className="mt-1 text-[0.625rem] font-mono text-terminal-fg/40">{PRESET_MAP[image].description}</p>
             )}
           </div>
 

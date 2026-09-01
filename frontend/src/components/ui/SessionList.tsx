@@ -139,7 +139,7 @@ function SessionIdleBadge({ sessionId, status }: { sessionId: string; status: st
   const isIdle = useInactivityDetector(sessionId, status)
   if (!isIdle) return null
   return (
-    <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border bg-amber-900/40 text-amber-400 border-amber-700">
+    <span className="text-[0.625rem] font-mono px-1.5 py-0.5 rounded border bg-amber-900/40 text-amber-400 border-amber-700">
       idle
     </span>
   )

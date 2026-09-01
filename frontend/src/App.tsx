@@ -4,6 +4,7 @@ import { TerminalPage } from '@/pages/TerminalPage'
 import { RecoveryPage } from '@/pages/RecoveryPage'
 import { useAuth } from '@/hooks/useAuth'
 import { ToastContainer } from '@/components/ui/ToastContainer'
+import { useDisplayScale } from '@/hooks/useDisplayScale'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, loading } = useAuth()
@@ -24,6 +25,9 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 export default function App() {
+  // Applies the persisted UI zoom to <html> and wires Ctrl/Cmd +/-/0
+  useDisplayScale()
+
   return (
     <BrowserRouter>
       <ToastContainer />

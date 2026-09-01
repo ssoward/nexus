@@ -104,8 +104,8 @@ export function OrchestratorPanel({ onClose }: Props) {
 
   const micBtnClass = (listening: boolean) =>
     listening
-      ? 'px-2 py-1 text-[10px] font-mono rounded border border-red-700 bg-red-900/40 text-red-400 animate-pulse'
-      : 'px-2 py-1 text-[10px] font-mono rounded border border-terminal-border text-terminal-fg/50 hover:bg-terminal-border'
+      ? 'px-2 py-1 text-[0.625rem] font-mono rounded border border-red-700 bg-red-900/40 text-red-400 animate-pulse'
+      : 'px-2 py-1 text-[0.625rem] font-mono rounded border border-terminal-border text-terminal-fg/50 hover:bg-terminal-border'
 
   return (
     <aside className="w-full h-full flex flex-col bg-[#0d1117] border-r border-terminal-border">
@@ -126,7 +126,7 @@ export function OrchestratorPanel({ onClose }: Props) {
 
       {/* State legend */}
       <div className="px-3 pt-2 pb-1 border-b border-terminal-border/50">
-        <p className="text-[10px] font-mono text-terminal-fg/30 uppercase mb-1.5">Session States</p>
+        <p className="text-[0.625rem] font-mono text-terminal-fg/30 uppercase mb-1.5">Session States</p>
         <dl className="space-y-0.5">
           {[
             { state: 'WORKING', desc: 'Producing output right now' },
@@ -135,8 +135,8 @@ export function OrchestratorPanel({ onClose }: Props) {
             { state: 'BUSY',    desc: 'Running, no prompt visible' },
           ].map(({ state, desc }) => (
             <div key={state} className="flex items-center gap-2">
-              <span className={`text-[9px] font-mono px-1 py-0.5 rounded border ${STATE_COLORS[state]}`}>{state}</span>
-              <span className="text-[10px] font-mono text-terminal-fg/40">{desc}</span>
+              <span className={`text-[0.5625rem] font-mono px-1 py-0.5 rounded border ${STATE_COLORS[state]}`}>{state}</span>
+              <span className="text-[0.625rem] font-mono text-terminal-fg/40">{desc}</span>
             </div>
           ))}
         </dl>
@@ -145,7 +145,7 @@ export function OrchestratorPanel({ onClose }: Props) {
       {/* Batch send to WAITING */}
       <div className="px-3 py-2 border-b border-terminal-border/50">
         <div className="flex items-center gap-1.5 mb-1">
-          <label className="text-[10px] font-mono text-terminal-fg/40 uppercase">Send to all WAITING</label>
+          <label className="text-[0.625rem] font-mono text-terminal-fg/40 uppercase">Send to all WAITING</label>
           <HelpTooltip
             text="Types this text into every session currently at a shell prompt (WAITING state). Useful for unblocking multiple agents stuck on the same confirmation."
           />
@@ -192,17 +192,17 @@ export function OrchestratorPanel({ onClose }: Props) {
           <div key={s.session_id} className="px-3 py-2 border-b border-terminal-border/50 hover:bg-white/5">
             <div className="flex items-center justify-between gap-1">
               <span className="text-sm font-mono text-terminal-fg truncate">{s.name}</span>
-              <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded border ${STATE_COLORS[s.state]}`}>
+              <span className={`text-[0.625rem] font-mono px-1.5 py-0.5 rounded border ${STATE_COLORS[s.state]}`}>
                 {s.state}
               </span>
             </div>
             <div className="flex items-center justify-between mt-1">
-              <span className="text-[10px] font-mono text-terminal-fg/30">
+              <span className="text-[0.625rem] font-mono text-terminal-fg/30">
                 idle {s.idle_seconds.toFixed(0)}s
               </span>
               <button
                 onClick={() => setSendTargetId(sendTargetId === s.session_id ? null : s.session_id)}
-                className="text-[10px] font-mono text-terminal-active hover:underline"
+                className="text-[0.625rem] font-mono text-terminal-active hover:underline"
               >
                 send
               </button>

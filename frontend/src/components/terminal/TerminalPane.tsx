@@ -11,6 +11,7 @@ import { useKeyboardGuard } from '@/hooks/useKeyboardGuard'
 import { MobileKeyboardShim } from './MobileKeyboardShim'
 import { MobileKeybar } from './MobileKeybar'
 import type { Session } from '@/types/session'
+import { useDisplayStore } from '@/store/displayStore'
 import { clsx } from 'clsx'
 
 interface Props {
@@ -29,6 +30,11 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
 
   const isIdle = useInactivityDetector(session.id, session.status)
   const { isMobile, hiddenInputRef, showSoftKeyboard } = useKeyboardGuard()
+  const terminalFontSize = useDisplayStore((s) => s.terminalFontSize)
+  // The init effect must not re-run when the font size changes (that would
+  // tear down the PTY socket), so read the current value through a ref.
+  const fontSizeRef = useRef(terminalFontSize)
+  fontSizeRef.current = terminalFontSize
 
   // Initialize xterm.js
   useEffect(() => {
@@ -36,8 +42,9 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
 
     const term = new Terminal({
       cursorBlink: true,
-      // Slightly larger font on touch devices for readability
-      fontSize: isMobile ? 10 : 14,
+      // User-adjustable via the header A−/A+ controls (persisted in displayStore);
+      // defaults to a smaller cell on touch devices so more columns fit.
+      fontSize: fontSizeRef.current,
       fontFamily: '"JetBrains Mono", "Fira Code", monospace',
       theme: {
         background: '#0d1117',
@@ -114,6 +121,15 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     })
     return () => disposable.dispose()
   }, [terminal, sendInput])
+
+  // Font-size changes alter the glyph cell, so the column/row count changes
+  // even though the container size didn't — refit and re-report explicitly.
+  useEffect(() => {
+    if (!terminal) return
+    terminal.options.fontSize = terminalFontSize
+    fitAddonRef.current?.fit()
+    sendResize(terminal.cols, terminal.rows)
+  }, [terminal, terminalFontSize, sendResize])
 
   // ResizeObserver → fit + resize WS message
   useEffect(() => {

@@ -73,10 +73,10 @@ export function MobileKeybar({ isVisible, sendInput }: Props) {
   }
 
   const btnClass =
-    'shrink-0 min-w-[40px] h-8 px-2 text-xs font-mono rounded border border-terminal-border bg-[#161b22] text-terminal-fg/70 active:bg-terminal-active/20 active:text-terminal-fg select-none'
+    'shrink-0 min-w-[2.5rem] h-8 px-2 text-xs font-mono rounded border border-terminal-border bg-[#161b22] text-terminal-fg/70 active:bg-terminal-active/20 active:text-terminal-fg select-none'
 
   const micClass = isListening
-    ? 'shrink-0 min-w-[40px] h-8 px-2 text-xs font-mono rounded border border-red-700 bg-red-900/40 text-red-400 select-none animate-pulse'
+    ? 'shrink-0 min-w-[2.5rem] h-8 px-2 text-xs font-mono rounded border border-red-700 bg-red-900/40 text-red-400 select-none animate-pulse'
     : btnClass
 
   return (

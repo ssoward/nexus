@@ -22,6 +22,14 @@ const SECTIONS = [
     ],
   },
   {
+    title: 'Display',
+    items: [
+      ['Zoom in / out', 'The A− / A+ buttons in the header scale the entire interface and the terminal font together. Click the percentage between them to reset.'],
+      ['Keyboard', 'Ctrl/Cmd + and Ctrl/Cmd − step the zoom; Ctrl/Cmd 0 resets it. These are intercepted before the terminal, so they never reach the shell.'],
+      ['Fine control', 'Settings → Display adjusts interface scale and terminal font size independently. The setting is saved per device in local storage.'],
+    ],
+  },
+  {
     title: 'Terminal States (Orchestrator)',
     items: [
       ['WORKING', 'Terminal produced output in the last 3 seconds — a command is running.'],
@@ -80,7 +88,7 @@ export function HelpModal({ onClose }: Props) {
         <div className="px-5 py-4 space-y-5">
           {SECTIONS.map((section) => (
             <div key={section.title}>
-              <h3 className="text-[10px] font-mono text-terminal-fg/40 uppercase tracking-widest mb-2">
+              <h3 className="text-[0.625rem] font-mono text-terminal-fg/40 uppercase tracking-widest mb-2">
                 {section.title}
               </h3>
               <dl className="space-y-2">
@@ -96,7 +104,7 @@ export function HelpModal({ onClose }: Props) {
         </div>
 
         <div className="px-5 py-3 border-t border-terminal-border">
-          <p className="text-[10px] font-mono text-terminal-fg/30">
+          <p className="text-[0.625rem] font-mono text-terminal-fg/30">
             Full docs → README.md · CLI → <code className="text-terminal-fg/50">python3 wctl.py --help</code>
           </p>
         </div>

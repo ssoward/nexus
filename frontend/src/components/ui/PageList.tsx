@@ -111,7 +111,7 @@ export function PageList({ onClose, onSelectPage, activePage }: Props) {
                 ✕
               </button>
             </div>
-            <p className="text-[10px] text-terminal-fg/30 font-mono truncate">{page.url}</p>
+            <p className="text-[0.625rem] text-terminal-fg/30 font-mono truncate">{page.url}</p>
           </div>
         ))}
       </div>

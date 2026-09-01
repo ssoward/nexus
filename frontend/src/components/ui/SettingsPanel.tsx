@@ -12,17 +12,25 @@ import {
 } from '@/api/auth'
 import { useAuthStore } from '@/store/authStore'
 import { useIsMobile } from '@/hooks/useIsMobile'
+import {
+  useDisplayStore,
+  UI_SCALE_MIN,
+  UI_SCALE_MAX,
+  UI_SCALE_STEP,
+  TERM_FONT_MIN,
+  TERM_FONT_MAX,
+} from '@/store/displayStore'
 import type { PasskeyCredential } from '@/types/auth'
 
 interface Props {
   onClose?: () => void
 }
 
-type Section = 'profile' | 'security' | 'passkeys' | 'danger'
+type Section = 'profile' | 'display' | 'security' | 'passkeys' | 'danger'
 
 function SectionHeader({ label, mobile }: { label: string; mobile: boolean }) {
   return (
-    <p className={`${mobile ? 'text-xs' : 'text-[10px]'} font-mono uppercase tracking-widest text-terminal-fg/40 mb-3 mt-5 first:mt-0`}>
+    <p className={`${mobile ? 'text-xs' : 'text-[0.625rem]'} font-mono uppercase tracking-widest text-terminal-fg/40 mb-3 mt-5 first:mt-0`}>
       {label}
     </p>
   )
@@ -36,7 +44,7 @@ function StatusBadge({ label, variant, mobile }: { label: string; variant: 'gree
     gray: 'text-terminal-fg/40 bg-terminal-border/20 border-terminal-border/40',
   }
   return (
-    <span className={`${mobile ? 'text-xs' : 'text-[10px]'} font-mono px-1.5 py-0.5 rounded border ${colors[variant]}`}>
+    <span className={`${mobile ? 'text-xs' : 'text-[0.625rem]'} font-mono px-1.5 py-0.5 rounded border ${colors[variant]}`}>
       {label}
     </span>
   )
@@ -50,7 +58,7 @@ function FieldInput({
 }) {
   return (
     <div>
-      <label className={`block ${mobile ? 'text-xs' : 'text-[10px]'} font-mono text-terminal-fg/50 mb-1`}>{label}</label>
+      <label className={`block ${mobile ? 'text-xs' : 'text-[0.625rem]'} font-mono text-terminal-fg/50 mb-1`}>{label}</label>
       <input
         type={type}
         value={value}
@@ -59,7 +67,28 @@ function FieldInput({
         autoComplete="off"
         className={`w-full bg-terminal-bg border border-terminal-border rounded px-3 py-1.5 ${mobile ? 'text-sm' : 'text-xs'} font-mono text-terminal-fg focus:outline-none focus:border-terminal-active`}
       />
-      {hint && <p className={`${mobile ? 'text-xs' : 'text-[10px]'} font-mono text-terminal-fg/30 mt-0.5`}>{hint}</p>}
+      {hint && <p className={`${mobile ? 'text-xs' : 'text-[0.625rem]'} font-mono text-terminal-fg/30 mt-0.5`}>{hint}</p>}
+    </div>
+  )
+}
+
+function Stepper({
+  label, value, onDec, onInc, decDisabled, incDisabled, mobile,
+}: {
+  label: string; value: string
+  onDec: () => void; onInc: () => void
+  decDisabled: boolean; incDisabled: boolean; mobile: boolean
+}) {
+  const btn =
+    'w-10 h-9 rounded border border-terminal-border font-mono text-terminal-fg/70 hover:border-terminal-active hover:text-terminal-fg disabled:opacity-30 disabled:hover:border-terminal-border'
+  return (
+    <div>
+      <label className={`block ${mobile ? 'text-xs' : 'text-[0.625rem]'} font-mono text-terminal-fg/50 mb-1`}>{label}</label>
+      <div className="flex items-center gap-2">
+        <button onClick={onDec} disabled={decDisabled} className={btn} aria-label={`Decrease ${label}`}>−</button>
+        <span className={`flex-1 text-center ${mobile ? 'text-sm' : 'text-xs'} font-mono text-terminal-fg tabular-nums`}>{value}</span>
+        <button onClick={onInc} disabled={incDisabled} className={btn} aria-label={`Increase ${label}`}>+</button>
+      </div>
     </div>
   )
 }
@@ -68,6 +97,13 @@ export function SettingsPanel({ onClose }: Props) {
   const { user, setUser } = useAuthStore()
   const isMobile = useIsMobile()
   const [activeSection, setActiveSection] = useState<Section>('profile')
+
+  // ── Display / accessibility zoom ───────────────────────────────────
+  const uiScale = useDisplayStore((st) => st.uiScale)
+  const terminalFontSize = useDisplayStore((st) => st.terminalFontSize)
+  const setUiScale = useDisplayStore((st) => st.setUiScale)
+  const setTerminalFontSize = useDisplayStore((st) => st.setTerminalFontSize)
+  const resetDisplay = useDisplayStore((st) => st.reset)
 
   // ── Profile / change-email ─────────────────────────────────────────
   const [newEmail, setNewEmail] = useState('')
@@ -196,12 +232,13 @@ export function SettingsPanel({ onClose }: Props) {
 
   const navItems: { id: Section; label: string }[] = [
     { id: 'profile', label: 'Profile' },
+    { id: 'display', label: 'Display' },
     { id: 'security', label: 'Security' },
     { id: 'passkeys', label: 'Passkeys' },
     { id: 'danger', label: 'Danger Zone' },
   ]
 
-  const msgSz = isMobile ? 'text-xs' : 'text-[10px]'
+  const msgSz = isMobile ? 'text-xs' : 'text-[0.625rem]'
   const btnSz = isMobile ? 'text-sm' : 'text-xs'
   const bodySz = isMobile ? 'text-sm' : 'text-xs'
 
@@ -223,7 +260,7 @@ export function SettingsPanel({ onClose }: Props) {
           <button
             key={item.id}
             onClick={() => { setActiveSection(item.id); setEmailMsg(null); setPwMsg(null); setPasskeyMsg(null); setDeleteMsg(null) }}
-            className={`flex-1 py-1.5 ${isMobile ? 'text-[11px]' : 'text-[9px]'} font-mono uppercase tracking-wider transition-colors ${
+            className={`flex-1 py-1.5 ${isMobile ? 'text-[0.6875rem]' : 'text-[0.5625rem]'} font-mono uppercase tracking-wider transition-colors ${
               activeSection === item.id
                 ? item.id === 'danger'
                   ? 'text-red-400 border-b border-red-500'
@@ -265,6 +302,47 @@ export function SettingsPanel({ onClose }: Props) {
                 {emailLoading ? 'Updating…' : 'Update Email'}
               </button>
             </form>
+          </div>
+        )}
+
+        {/* ── Display ── */}
+        {activeSection === 'display' && (
+          <div>
+            <SectionHeader label="Display Size" mobile={isMobile} />
+            <p className={`${msgSz} font-mono text-terminal-fg/40 mb-3 leading-relaxed`}>
+              Scales the whole interface — menus, buttons and terminal text — for
+              small or high-density screens. Also available as A−/A+ in the header,
+              or Ctrl/Cmd with + − 0. Saved on this device.
+            </p>
+
+            <Stepper
+              label="Interface scale"
+              value={`${Math.round(uiScale * 100)}%`}
+              onDec={() => setUiScale(uiScale - UI_SCALE_STEP)}
+              onInc={() => setUiScale(uiScale + UI_SCALE_STEP)}
+              decDisabled={uiScale <= UI_SCALE_MIN}
+              incDisabled={uiScale >= UI_SCALE_MAX}
+              mobile={isMobile}
+            />
+
+            <div className="h-2" />
+
+            <Stepper
+              label="Terminal font size"
+              value={`${terminalFontSize}px`}
+              onDec={() => setTerminalFontSize(terminalFontSize - 1)}
+              onInc={() => setTerminalFontSize(terminalFontSize + 1)}
+              decDisabled={terminalFontSize <= TERM_FONT_MIN}
+              incDisabled={terminalFontSize >= TERM_FONT_MAX}
+              mobile={isMobile}
+            />
+
+            <button
+              onClick={resetDisplay}
+              className={`mt-4 w-full py-2 rounded border border-terminal-border text-terminal-fg/80 font-mono ${btnSz} hover:border-terminal-active hover:text-terminal-fg`}
+            >
+              Reset to defaults
+            </button>
           </div>
         )}
 

@@ -281,7 +281,7 @@ export function LoginForm() {
             </button>
             <div className="relative flex items-center">
               <div className="flex-grow border-t border-terminal-border/30" />
-              <span className="mx-2 text-[10px] font-mono text-terminal-fg/25">or sign in with password</span>
+              <span className="mx-2 text-[0.625rem] font-mono text-terminal-fg/25">or sign in with password</span>
               <div className="flex-grow border-t border-terminal-border/30" />
             </div>
             <form onSubmit={handleCredentials} className="space-y-3">
@@ -342,7 +342,7 @@ export function LoginForm() {
                   )}
                 </button>
               </div>
-              <p className="text-[10px] font-mono text-terminal-fg/30 mt-1">16+ chars, upper, lower, digit, special</p>
+              <p className="text-[0.625rem] font-mono text-terminal-fg/30 mt-1">16+ chars, upper, lower, digit, special</p>
             </div>
             <div>
               <label className="block text-xs font-mono text-terminal-fg/60 mb-1">Confirm Password</label>
@@ -365,21 +365,21 @@ export function LoginForm() {
         {step === 'mfa_choice' && (
           <div className="space-y-4">
             <p className="text-xs font-mono text-terminal-fg/80">Choose your verification method</p>
-            <p className="text-[10px] font-mono text-terminal-fg/40">This secures your account with two-factor authentication.</p>
+            <p className="text-[0.625rem] font-mono text-terminal-fg/40">This secures your account with two-factor authentication.</p>
             <button onClick={() => handleMfaChoice('totp')} disabled={loading}
               className="w-full py-3 rounded border border-terminal-border hover:border-terminal-active text-left px-4 transition-colors">
               <span className="text-sm font-mono text-terminal-fg">Authenticator App</span>
-              <p className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Use Google Authenticator, Authy, or 1Password</p>
+              <p className="text-[0.625rem] font-mono text-terminal-fg/40 mt-0.5">Use Google Authenticator, Authy, or 1Password</p>
             </button>
             <button onClick={() => handleMfaChoice('email_otp')} disabled={loading}
               className="w-full py-3 rounded border border-terminal-border hover:border-terminal-active text-left px-4 transition-colors">
               <span className="text-sm font-mono text-terminal-fg">Email Code</span>
-              <p className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Receive a 6-digit code at {email || 'your email'}</p>
+              <p className="text-[0.625rem] font-mono text-terminal-fg/40 mt-0.5">Receive a 6-digit code at {email || 'your email'}</p>
             </button>
             <button onClick={() => handleMfaChoice('passkey')} disabled={loading}
               className="w-full py-3 rounded border border-terminal-border hover:border-terminal-active text-left px-4 transition-colors">
               <span className="text-sm font-mono text-terminal-fg">Passkey / Biometrics</span>
-              <p className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Use Face ID, Touch ID, or a hardware security key</p>
+              <p className="text-[0.625rem] font-mono text-terminal-fg/40 mt-0.5">Use Face ID, Touch ID, or a hardware security key</p>
             </button>
             {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
             {backButton()}
@@ -521,7 +521,7 @@ export function LoginForm() {
         {step === 'mfa_select' && (
           <div className="space-y-3">
             <p className="text-sm font-mono text-terminal-fg/80 mb-1">Verify your identity</p>
-            <p className="text-[10px] font-mono text-terminal-fg/40 mb-4">Choose how you'd like to authenticate</p>
+            <p className="text-[0.625rem] font-mono text-terminal-fg/40 mb-4">Choose how you'd like to authenticate</p>
             {availableMethods.includes('passkey') && (
               <button type="button" onClick={() => setStep('passkey')}
                 className="w-full py-3 px-4 rounded border border-terminal-border hover:border-terminal-active bg-terminal-bg/50 hover:bg-terminal-bg text-left transition-colors flex items-center gap-3">
@@ -533,7 +533,7 @@ export function LoginForm() {
                 </span>
                 <div>
                   <div className="text-sm font-mono text-terminal-fg">Face ID / Fingerprint</div>
-                  <div className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Use your registered passkey or security key</div>
+                  <div className="text-[0.625rem] font-mono text-terminal-fg/40 mt-0.5">Use your registered passkey or security key</div>
                 </div>
               </button>
             )}
@@ -548,7 +548,7 @@ export function LoginForm() {
                 </span>
                 <div>
                   <div className="text-sm font-mono text-terminal-fg">Authenticator App</div>
-                  <div className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Get a code from Google Authenticator, Authy, or 1Password</div>
+                  <div className="text-[0.625rem] font-mono text-terminal-fg/40 mt-0.5">Get a code from Google Authenticator, Authy, or 1Password</div>
                 </div>
               </button>
             )}
@@ -562,7 +562,7 @@ export function LoginForm() {
                 </span>
                 <div>
                   <div className="text-sm font-mono text-terminal-fg">Email Code</div>
-                  <div className="text-[10px] font-mono text-terminal-fg/40 mt-0.5">Send a 6-digit code to {email || 'your email'}</div>
+                  <div className="text-[0.625rem] font-mono text-terminal-fg/40 mt-0.5">Send a 6-digit code to {email || 'your email'}</div>
                 </div>
               </button>
             )}
