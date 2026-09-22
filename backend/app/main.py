@@ -19,6 +19,7 @@ from app.crypto import init_crypto
 from app.database import db
 from app.limiter import limiter
 from app.logging_config import configure_logging
+from app.middleware.origin_check import OriginCheckMiddleware
 from app.middleware.security_headers import SecurityHeadersMiddleware
 from app.routers import auth, sessions, ws, orchestration, health, metrics as metrics_router, workspaces, pages, passkey, stepup
 from app.services import pty_service, pty_broadcaster
@@ -192,6 +193,9 @@ async def _global_exception_handler(request: Request, exc: Exception):
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_middleware(SlowAPIMiddleware)
+# Second CSRF layer on top of SameSite=Strict: reject cross-site / foreign-Origin
+# state-changing requests before they reach any router (M3).
+app.add_middleware(OriginCheckMiddleware)
 app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(health.router)

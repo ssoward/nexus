@@ -7,6 +7,7 @@ from app.database import db
 from app.dependencies import get_current_user
 from app.models.session import SessionCreate, SessionPublic, SessionResizeRequest, SessionStatus
 from app.services import session_service, pty_service, pty_broadcaster
+from app.limiter import _real_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
@@ -41,7 +42,7 @@ async def create_session(
     request: Request,
     current_user: dict = Depends(get_current_user),
 ):
-    ip = request.client.host if request.client else None
+    ip = _real_ip(request)
     try:
         # The cap is enforced atomically inside create_session (count + reserve slot
         # under a lock) so concurrent requests can't exceed max_panes.
@@ -111,7 +112,7 @@ async def delete_session(
     if not session:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
 
-    ip = request.client.host if request.client else None
+    ip = _real_ip(request)
     await session_service.delete_session(session_id, current_user["id"], ip)
 
 

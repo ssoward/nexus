@@ -164,6 +164,9 @@ def _make_app() -> FastAPI:
     # Provide limiter state so @limiter.limit decorators don't crash
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+    # Same cross-site defence as production, so router tests exercise it too.
+    from app.middleware.origin_check import OriginCheckMiddleware
+    app.add_middleware(OriginCheckMiddleware)
     app.include_router(auth_router.router)
     app.include_router(sessions_router.router)
     app.include_router(passkey_router.router)

@@ -16,6 +16,7 @@ from app.services.rate_limiter import rate_limiter
 from app.services.session_service import get_session, mark_active, update_session_status
 from app.services.token_service import decode_ws_token
 from app.models.session import SessionStatus
+from app.limiter import _real_ip
 
 logger = logging.getLogger(__name__)
 router = APIRouter(tags=["websocket"])
@@ -86,19 +87,25 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
         await websocket.close(code=4400, reason="Invalid session ID")
         return
 
-    # HIGH-3: Extract the auth token from the Sec-WebSocket-Protocol header so
-    # it never appears in the URL (browser history, proxy logs, Referrer headers).
-    # The browser sends `Sec-WebSocket-Protocol: nexus-auth, <token>` when the
-    # frontend passes `new WebSocket(url, ['nexus-auth', token])`.
+    # Cross-site WebSocket hijacking defence: a page on another origin must not
+    # be able to open a terminal socket, even with a token. Browsers always send
+    # Origin on WebSocket upgrades; non-browser clients (no Origin) pass through.
+    from app.middleware.origin_check import origin_rejection
+    if origin_rejection(websocket.headers):
+        await websocket.close(code=4403, reason="Origin not allowed")
+        return
+
+    # HIGH-3: The auth token travels in the Sec-WebSocket-Protocol header so it
+    # never appears in the URL (browser history, proxy/uvicorn access logs,
+    # Referrer headers). The browser sends `Sec-WebSocket-Protocol: nexus-auth,
+    # <token>` when the frontend passes `new WebSocket(url, ['nexus-auth', token])`.
+    # The former `?token=` query fallback is gone: it leaked tokens into logs.
     token = ""
     subprotocol_header = websocket.headers.get("sec-websocket-protocol", "")
     if subprotocol_header.startswith("nexus-auth, "):
         token = subprotocol_header.split(", ", 1)[1]
-    else:
-        # Fallback: accept query param for backward-compat during transition
-        token = websocket.query_params.get("token", "")
 
-    user_id = await _validate_ws_token(token, session_id)
+    user_id = await _validate_ws_token(token, session_id) if token else None
     if user_id is None:
         await websocket.close(code=4401, reason="Unauthorized")
         return
@@ -146,7 +153,7 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
         await db.execute(
             "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
             (user_id, "WS_CONNECT", json.dumps({"session_id": session_id}),
-             websocket.client.host if websocket.client else None),
+             _real_ip(websocket)),
         )
     except Exception:
         logger.warning("Failed to write WS_CONNECT audit log for session %s", session_id[:8])
@@ -276,7 +283,7 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
             await db.execute(
                 "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
                 (user_id, "WS_DISCONNECT", json.dumps({"session_id": session_id}),
-                 websocket.client.host if websocket.client else None),
+                 _real_ip(websocket)),
             )
         except Exception:
             logger.warning("Failed to write WS_DISCONNECT audit log for session %s", session_id[:8])

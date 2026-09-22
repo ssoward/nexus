@@ -23,7 +23,7 @@ from app.config import get_settings
 from app.crypto import verify_password
 from app.database import db
 from app.dependencies import get_current_user, require_recent_mfa
-from app.limiter import limiter
+from app.limiter import _real_ip, limiter
 from app.models.audit import AuditAction
 from app.services.auth_service import available_mfa_methods
 from app.services.notify import notify
@@ -202,7 +202,7 @@ async def setup_complete(request: Request, response: Response, req: SetupComplet
     await db.execute("UPDATE users SET mfa_method = 'passkey' WHERE id = ?", (row["id"],))
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (row["id"], AuditAction.PASSKEY_REGISTER.value, request.client.host if request.client else None),
+        (row["id"], AuditAction.PASSKEY_REGISTER.value, _real_ip(request)),
     )
 
     token = create_access_token(row["id"])
@@ -297,7 +297,7 @@ async def authenticate_complete(request: Request, response: Response, req: AuthC
         logger.warning("Passkey authenticate_complete failed for user %s: %s", row["id"], exc)
         await db.execute(
             "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-            (row["id"], AuditAction.PASSKEY_AUTH_FAILURE.value, request.client.host if request.client else None),
+            (row["id"], AuditAction.PASSKEY_AUTH_FAILURE.value, _real_ip(request)),
         )
         raise HTTPException(status_code=400, detail="Passkey verification failed")
 
@@ -311,7 +311,7 @@ async def authenticate_complete(request: Request, response: Response, req: AuthC
     )
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (row["id"], AuditAction.PASSKEY_AUTH_SUCCESS.value, request.client.host if request.client else None),
+        (row["id"], AuditAction.PASSKEY_AUTH_SUCCESS.value, _real_ip(request)),
     )
 
     token = create_access_token(row["id"])
@@ -390,7 +390,7 @@ async def register_complete(
     await db.execute("UPDATE users SET mfa_method = 'passkey' WHERE id = ?", (current_user["id"],))
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (current_user["id"], AuditAction.PASSKEY_REGISTER.value, request.client.host if request.client else None),
+        (current_user["id"], AuditAction.PASSKEY_REGISTER.value, _real_ip(request)),
     )
     await notify(current_user["username"], "PASSKEY_ADDED", f"Passkey name: {req.name or 'unnamed'}.")
     return {"ok": True}
@@ -447,7 +447,7 @@ async def delete_credential(
     await db.execute("DELETE FROM passkey_credentials WHERE id = ?", (cred_id,))
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (current_user["id"], AuditAction.PASSKEY_DELETE.value, request.client.host if request.client else None),
+        (current_user["id"], AuditAction.PASSKEY_DELETE.value, _real_ip(request)),
     )
 
     if is_last:
@@ -577,7 +577,7 @@ async def login_complete_passwordless(
         await db.execute(
             "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
             (user_row["id"], AuditAction.PASSKEY_AUTH_FAILURE.value,
-             request.client.host if request.client else None),
+             _real_ip(request)),
         )
         raise HTTPException(status_code=400, detail="Passkey verification failed")
 
@@ -592,7 +592,7 @@ async def login_complete_passwordless(
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
         (user_row["id"], AuditAction.PASSKEY_AUTH_SUCCESS.value,
-         request.client.host if request.client else None),
+         _real_ip(request)),
     )
 
     token = create_access_token(user_row["id"])

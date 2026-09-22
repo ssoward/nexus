@@ -633,7 +633,7 @@ All API routes are under `/api/`.
 | DELETE | `/api/sessions/{id}` | Cookie | Stop and delete a session |
 | POST | `/api/sessions/{id}/restart` | Cookie | Restart a stopped session |
 | PATCH | `/api/sessions/{id}/resize` | Cookie | Resize terminal |
-| WS | `/ws/session/{id}?token=…` | WS token | Bidirectional PTY I/O |
+| WS | `/ws/session/{id}` | WS token in `Sec-WebSocket-Protocol: nexus-auth, <token>` (query-string tokens are no longer accepted); `Origin` must be ours | Bidirectional PTY I/O |
 | **Orchestration** | | | |
 | GET | `/api/orchestration/sessions/states` | Cookie | Classified state for all running sessions |
 | GET | `/api/orchestration/sessions/{id}/state` | Cookie | State + idle seconds |
@@ -942,7 +942,8 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Owner registration | `create-user` runs count-then-insert under a lock (one owner even under concurrent requests) and honours `NEXUS_SETUP_TOKEN` when set |
 | Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment. **Sessions still run as the Nexus OS user**, so they can read any file that user can — keep `.env` and `~/.nexus/nexus.db` at mode `0600` (the backend warns at startup if they are not). The security boundary is authentication, not process isolation |
 | Single-use tokens | WebAuthn challenges and email OTP codes are consumed with an atomic `UPDATE … WHERE used=0 RETURNING`, closing the read-then-update replay race |
-| Rate-limit IP trust | Forwarded-IP headers (`X-Real-IP`/`X-Forwarded-For`) are honored only when the direct peer is a loopback/private proxy; otherwise the limiter keys on the real peer so headers can't be spoofed to bypass limits |
+| Rate-limit IP trust | Forwarded-IP headers (`X-Real-IP`/`X-Forwarded-For`) are honored only when the direct peer is the local Caddy proxy (loopback or an RFC 1918 Docker bridge range — explicitly *not* the Tailscale 100.64/10 range); otherwise the limiter keys on the real peer so headers can't be spoofed to bypass limits. Audit rows use the same resolved client IP, so they record the tailnet address rather than the proxy |
+| Cross-site requests | Second CSRF layer on top of `SameSite=Strict`: `OriginCheckMiddleware` rejects any POST/PATCH/DELETE with `Sec-Fetch-Site: cross-site`, an opaque (`null`) Origin, or an `Origin` that is neither the configured WebAuthn origin nor the request's own Host. Requests without an Origin header (curl, `wctl.py`) pass and still need the cookie. The WebSocket handshake applies the same check (close code 4403), so a foreign page cannot open a terminal socket even with a token |
 | WS token security | Single-use, 60-second TTL, bound to a specific session ID, atomic consume |
 | TOTP replay | Used codes recorded; reuse within 90 s rejected |
 | Security headers | CSP, HSTS with `preload`, X-Frame-Options, X-Content-Type-Options, Referrer-Policy |
@@ -960,7 +961,8 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Brute force | Rate limiting + account lockout on guessable factors (password, TOTP, e-mail code) — including step-up attempts |
 | TOTP replay | Codes recorded with timestamp; reuse within 90 s rejected |
 | JWT forgery | HS256 with ≥ 32-byte secret; PyJWT validates `exp`, `iat` |
-| WS session hijack | Single-use tokens; 60-second TTL; atomic consume |
+| WS session hijack | Single-use tokens; 60-second TTL; atomic consume; token only in the subprotocol header (never the URL); handshake `Origin` must be ours |
+| CSRF (typing into a shell from another site) | `SameSite=Strict` cookie **and** `OriginCheckMiddleware` (`Sec-Fetch-Site` / `Origin` validation) on every state-changing request |
 | Passkey cloning | Sign count validated; backwards counter → failure |
 | Passkey phishing | `rp_id` binds credential to exact hostname |
 | Clickjacking | `frame-ancestors 'none'` + `X-Frame-Options: DENY` |

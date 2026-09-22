@@ -74,7 +74,7 @@ async def login(
     password: str = Form(...),
     totp_code: str = Form(default=""),
 ):
-    ip = request.client.host if request.client else None
+    ip = _real_ip(request)
     user = await authenticate_user(username, password, totp_code, ip)
 
     if user == NEEDS_MFA_SETUP:
@@ -153,7 +153,7 @@ async def logout(request: Request, response: Response):
         if user_id is not None:
             await db.execute(
                 "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-                (user_id, "LOGOUT", request.client.host if request.client else None),
+                (user_id, "LOGOUT", _real_ip(request)),
             )
 
     _clear_auth_cookie(response)
@@ -355,7 +355,7 @@ async def bootstrap_totp(
     )
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (row["id"], "TOTP_SETUP", request.client.host if request.client else None),
+        (row["id"], "TOTP_SETUP", _real_ip(request)),
     )
 
     totp = pyotp.TOTP(secret)
@@ -435,7 +435,7 @@ async def setup_mfa(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MFA already configured")
 
     s = get_settings()
-    ip = request.client.host if request.client else None
+    ip = _real_ip(request)
 
     if method == "totp":
         secret = pyotp.random_base32()
@@ -822,7 +822,7 @@ async def delete_account(
     await db.execute("DELETE FROM sessions WHERE user_id = ?", (uid,))
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (uid, "ACCOUNT_DELETED", request.client.host if request.client else None),
+        (uid, "ACCOUNT_DELETED", _real_ip(request)),
     )
     await db.execute("DELETE FROM users WHERE id = ?", (uid,))
     _clear_auth_cookie(response)
