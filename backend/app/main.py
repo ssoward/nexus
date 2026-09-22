@@ -33,6 +33,19 @@ _watchdog_task: asyncio.Task | None = None
 _tls_task: asyncio.Task | None = None
 
 
+def _warn_if_group_or_world_readable(path: str) -> None:
+    """Log a warning when a secret-bearing file is readable by anyone but its owner."""
+    try:
+        mode = os.stat(path).st_mode & 0o777
+    except FileNotFoundError:
+        return
+    if mode & 0o077:
+        logger.warning(
+            "%s is mode %o — readable by other users and by any process in a terminal "
+            "session. Run: chmod 600 %s", path, mode, path,
+        )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _watchdog_task, _tls_task
@@ -67,6 +80,13 @@ async def lifespan(app: FastAPI):
     db._init(s.db_path)
     await db.connect()
     logger.info("Database connected: %s", s.db_path)
+
+    # Session shells run as this same OS user, so file permissions are the only
+    # thing keeping JWT_SECRET (.env) and password hashes / TOTP blobs (the DB)
+    # away from a process typed into a terminal. Complain loudly if they're loose.
+    repo_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    for sensitive in (os.path.join(repo_root, ".env"), s.db_path):
+        _warn_if_group_or_world_readable(sensitive)
 
     recovery_mode = s.recovery_enabled
     if recovery_mode:

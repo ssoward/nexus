@@ -919,7 +919,7 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Account lockout | 5 failures → 15-minute lockout in DB; enforced at every authenticated request |
 | JWT revocation | Logout inserts JTI into `revoked_tokens`; password change, email change, and MFA recovery stamp `users.tokens_valid_after`, rejecting **every** token issued earlier (evicts sessions on other devices, not just the current cookie) |
 | MFA integrity | Switching to an MFA method never provisions a *new* factor from a password-only request — `/switch-mfa` only selects among already-enrolled factors, and `/bootstrap-totp` refuses once any MFA is configured, so knowing the password alone can't downgrade a passkey/email-OTP account |
-| Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment, so a shell/agent/subprocess can't read signing keys |
+| Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment. **Sessions still run as the Nexus OS user**, so they can read any file that user can — keep `.env` and `~/.nexus/nexus.db` at mode `0600` (the backend warns at startup if they are not). The security boundary is authentication, not process isolation |
 | Single-use tokens | WebAuthn challenges and email OTP codes are consumed with an atomic `UPDATE … WHERE used=0 RETURNING`, closing the read-then-update replay race |
 | Rate-limit IP trust | Forwarded-IP headers (`X-Real-IP`/`X-Forwarded-For`) are honored only when the direct peer is a loopback/private proxy; otherwise the limiter keys on the real peer so headers can't be spoofed to bypass limits |
 | WS token security | Single-use, 60-second TTL, bound to a specific session ID, atomic consume |
@@ -927,13 +927,13 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Security headers | CSP, HSTS with `preload`, X-Frame-Options, X-Content-Type-Options, Referrer-Policy |
 | Passkey | `userVerification=REQUIRED`; sign count validated (clone detection); `rp_id` never derived from request headers |
 | CORS | `allow_origins=[]` — no cross-origin requests permitted |
-| Absolute session timeout | `auth_time` claim enforced at `/refresh` and `get_current_user`; max 24 h from login |
+| Absolute session timeout | `auth_time` claim (set at login, preserved across `/refresh`) is compared against `session.absolute_max_hours` in `get_current_user`. **Default is 0 = disabled** — a cookie lives until logout or credential change. Set `absolute_max_hours` in `config.yml` to cap how long a stolen cookie stays usable |
 
 ### Threat model
 
 | Threat | Mitigation |
 |--------|-----------|
-| Stolen cookie | httpOnly + SameSite=Strict + short TTL + revocation on logout |
+| Stolen cookie | httpOnly + Secure + SameSite=Strict; revocation on logout; `tokens_valid_after` eviction on password/email change or recovery. The JWT TTL is long (365 d, slid on refresh) unless `session.absolute_max_hours` is set — see Hardening summary |
 | Brute force | Rate limiting + account lockout |
 | TOTP replay | Codes recorded with timestamp; reuse within 90 s rejected |
 | JWT forgery | HS256 with ≥ 32-byte secret; PyJWT validates `exp`, `iat` |
@@ -947,7 +947,7 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 ### Pre-production checklist
 
 - [ ] Generate unique `APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT` — never reuse across installs
-- [ ] Confirm `.env` is in `.gitignore` and never committed
+- [ ] Confirm `.env` is in `.gitignore` and never committed; `chmod 600 .env` (session shells run as the same user)
 - [ ] Access via Tailscale or VPN only
 - [ ] Provision TLS cert and configure Caddy for HTTPS
 - [ ] Create your user account and set up MFA
