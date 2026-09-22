@@ -482,6 +482,10 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
 | `TLS_DOMAIN` | No | Cert hostname to renew (falls back to `NEXUS_HOST`, then `webauthn.rp_id`) |
 | `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
+| `ANTHROPIC_API_KEY` | No | Not read by the backend; inherited by every PTY session so CLIs pick it up |
+| `DEEPSEEK_API_KEY` | No | Same — passed through to sessions for DeepSeek-aware CLIs |
+
+> **Provider keys are visible to every session.** `pty_service.spawn` copies the backend's environment into each PTY, stripping only the four keys in `_SECRET_ENV_KEYS` (`APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT`, `SMTP_PASSWORD`). That pass-through is what makes `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY` work without per-session setup, but it also means any shell, agent, or package postinstall script in a session can read them. Add a key to `_SECRET_ENV_KEYS` if the backend needs it but sessions should not see it. A new `.env` entry only reaches sessions after a backend restart — the launcher sources `.env` at startup.
 
 ### `config.yml` — non-secret runtime config
 
