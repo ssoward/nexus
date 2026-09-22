@@ -1,12 +1,23 @@
+import ipaddress
 import time
 from datetime import datetime, timezone
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from app.database import db
+from app.limiter import _real_ip
 from app.services import pty_service
 
 router = APIRouter(tags=["health"])
+
+
+def _is_local_caller(request: Request) -> bool:
+    """True when the *resolved* client (behind Caddy: the forwarded IP) is loopback,
+    i.e. start.sh / launchd probes on the box itself rather than a tailnet or LAN peer."""
+    try:
+        return ipaddress.ip_address(_real_ip(request)).is_loopback
+    except ValueError:
+        return False
 
 _startup_time: float = 0.0
 
@@ -17,7 +28,10 @@ def set_startup_time(t: float) -> None:
 
 
 @router.get("/api/health")
-async def health_check():
+async def health_check(request: Request):
+    """Liveness probe. Unauthenticated, so remote callers only learn up/degraded;
+    version, uptime and per-component detail are reserved for loopback callers."""
+    detailed = _is_local_caller(request)
     checks = {}
     status = "healthy"
 
@@ -45,6 +59,8 @@ async def health_check():
         checks["pty_service"] = "error"
         status = "degraded"
 
+    if not detailed:
+        return {"status": status}
     return {
         "status": status,
         "checks": checks,

@@ -10,6 +10,14 @@ session:
   jwt_expire_minutes: 43200   # 30 days — slid forward on every refresh while the app is in use
   absolute_max_hours: 720     # Force a fresh login 30 days after the ORIGINAL login regardless of refreshes —
                               # a hard ceiling on how long a stolen cookie is usable. 0 disables the ceiling.
+  # Environment variable NAMES forwarded from the backend into every terminal
+  # session, on top of the built-in allowlist (PATH, HOME, SHELL, LANG, LC_*,
+  # XDG_*, SSH_AUTH_SOCK, TMPDIR, TZ). Nothing else from .env reaches a session.
+  # The values come from .env on each machine; any process a session starts can
+  # read them, so list only what CLIs in your sessions actually need.
+  pass_env:
+    - ANTHROPIC_API_KEY
+    - DEEPSEEK_API_KEY
 
 recovery:
   enabled: true    # serialize session ring buffers on graceful shutdown and replay after restart
@@ -32,7 +40,13 @@ presets:
     command: ["python3"]
     description: Python 3 REPL
 
+# WebAuthn relying-party identity. The hostname is machine-specific and this
+# file is shared via git, so set RP_ID / WEBAUTHN_ORIGIN (and NEXUS_HOST for
+# Caddy) in each machine's .env instead of here — see .env.example. Values here
+# are only a fallback; the defaults below deliberately point at localhost so a
+# missing .env entry fails obviously (passkeys refuse to enrol) rather than
+# silently serving another machine's identity.
 webauthn:
-  rp_id: ssowardm1.tail040188.ts.net
+  rp_id: localhost
   rp_name: Nexus
-  origin: https://ssowardm1.tail040188.ts.net
+  origin: http://localhost:8000

@@ -62,6 +62,13 @@ class Settings(BaseSettings):
     # Default 30 days; 0 disables the ceiling (sessions then slide forever).
     session_absolute_max_hours: int = 720
 
+    # Extra environment variable NAMES forwarded from the backend's environment
+    # into spawned sessions, on top of the built-in allowlist (PATH, HOME, LANG,
+    # LC_*, XDG_*, SSH_AUTH_SOCK…). Typical: provider keys CLIs expect, such as
+    # ANTHROPIC_API_KEY. Everything else in .env stays out of sessions. The app's
+    # own secrets are never forwarded even if listed.
+    session_pass_env: list[str] = []
+
     # TLS auto-renewal
     tls_domain: str = ""
     tls_auto_renew: bool = False
@@ -177,6 +184,8 @@ def get_settings() -> Settings:
             env_overrides["session_absolute_max_hours"] = session["absolute_max_hours"]
         if session.get("jwt_expire_minutes"):
             env_overrides["jwt_expire_minutes"] = session["jwt_expire_minutes"]
+        if session.get("pass_env"):
+            env_overrides["session_pass_env"] = [str(k) for k in session["pass_env"]]
         if app.get("log_format"):
             env_overrides["log_format"] = app["log_format"]
         if yaml_config.get("presets"):

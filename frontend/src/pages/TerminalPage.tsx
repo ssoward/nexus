@@ -309,7 +309,7 @@ export function TerminalPage() {
             </div>
             <iframe
               src={activePage.url}
-              sandbox="allow-scripts allow-forms allow-popups allow-same-origin"
+              sandbox="allow-scripts allow-forms allow-popups"
               className="flex-1 w-full border-0"
               title={activePage.name}
             />

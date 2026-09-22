@@ -132,7 +132,13 @@ async def setup_begin(request: Request, req: SetupBeginRequest):
         "SELECT id, hashed_password, mfa_method FROM users WHERE username = ?",
         (req.username,),
     )
-    if not row or not verify_password(req.password, row["hashed_password"]):
+    if not row:
+        # Burn bcrypt time for unknown users so latency doesn't enumerate accounts
+        # (same defence as /login, /setup-mfa, /switch-mfa).
+        from app.services.auth_service import _DUMMY_HASH
+        verify_password(req.password, _DUMMY_HASH)
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
+    if not verify_password(req.password, row["hashed_password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
     if row["mfa_method"] is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="MFA already configured")

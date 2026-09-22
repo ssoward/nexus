@@ -43,8 +43,15 @@ fi
 
 export CONFIG_PATH="$REPO_ROOT/config.yml"
 
-# Hostname Caddy serves; mirrors the default in docker-compose.yml.
-NEXUS_HOST="${NEXUS_HOST:-ssowardm1.tail040188.ts.net}"
+# Hostname Caddy serves. Machine-specific, so it lives in .env (docker-compose
+# refuses to start without it) rather than in any tracked file.
+if [[ -z "${NEXUS_HOST:-}" ]]; then
+  echo "ERROR: NEXUS_HOST is not set. Add it to .env (this machine's tailnet hostname," >&2
+  echo "       e.g. NEXUS_HOST=your-machine.tail12345.ts.net) along with RP_ID and WEBAUTHN_ORIGIN." >&2
+  exit 1
+fi
+CADDY_HOST_PORT="${CADDY_HOST_PORT:-8443}"
+CADDY_BIND="${CADDY_BIND:-127.0.0.1}"
 
 # ── 3. Build frontend (if dist is missing or source changed) ─────────────────
 # Caddy serves frontend/dist directly (see the volume mount in
@@ -127,8 +134,27 @@ if ! docker info >/dev/null 2>&1; then
   fi
 fi
 
-echo "Starting Caddy..."
+echo "Starting Caddy (published on ${CADDY_BIND}:${CADDY_HOST_PORT})..."
 docker compose up -d --remove-orphans
+
+# Caddy is bound to loopback by default, so the tailnet reaches it only through
+# `tailscale serve`, which forwards :443 on the machine's tailnet address to the
+# local port — and nothing else on the LAN can. Persisted by --bg across reboots.
+if [[ "$CADDY_BIND" == "127.0.0.1" ]]; then
+  TS_BIN="$(command -v tailscale || true)"
+  [[ -z "$TS_BIN" && -x /Applications/Tailscale.app/Contents/MacOS/Tailscale ]] \
+    && TS_BIN=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+  if [[ -n "$TS_BIN" ]]; then
+    if ! "$TS_BIN" serve status 2>/dev/null | grep -q "tcp://localhost:${CADDY_HOST_PORT}"; then
+      echo "Exposing Caddy to the tailnet: tailscale serve --bg --tcp=443 tcp://localhost:${CADDY_HOST_PORT}"
+      "$TS_BIN" serve --bg --tcp=443 "tcp://localhost:${CADDY_HOST_PORT}" \
+        || echo "WARNING: tailscale serve failed — run it manually or the app is reachable only on this machine." >&2
+    fi
+  else
+    echo "WARNING: tailscale CLI not found. Expose Caddy with:" >&2
+    echo "  tailscale serve --bg --tcp=443 tcp://localhost:${CADDY_HOST_PORT}" >&2
+  fi
+fi
 
 # ── 5. Start backend on host ─────────────────────────────────────────────────
 # A backend from a previous run keeps port 8000, and uvicorn's bind error is easy

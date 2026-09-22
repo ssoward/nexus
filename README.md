@@ -75,7 +75,7 @@ Typical uses:
 
 ### Settings & Account Management
 - **Settings panel** — Profile (change email), Display (interface scale + terminal font size), Security (enrolled factors, e-mail codes on/off, change password), Passkeys (list/add/remove keys — the last passkey cannot be removed unless another factor is enrolled), Danger Zone (delete account with typed confirmation). Account-changing actions prompt for step-up verification when needed
-- **Web page embedding** — embed HTTPS pages as sandboxed iframes in a split panel alongside terminals (desktop) or full-screen overlay (mobile)
+- **Web page embedding** — embed HTTPS pages as sandboxed iframes (`allow-scripts allow-forms allow-popups`, never `allow-same-origin`) in a split panel alongside terminals (desktop) or full-screen overlay (mobile)
 - **Workspace grouping** — named, color-coded groups for organizing sessions
 - **Prometheus metrics** — `GET /api/metrics` exposes `sessions_active`, `ws_connections`, `pty_bytes_read`, uptime
 - **Structured JSON logging** — configurable via `log_format: json`; includes `user_id`, `session_id`, IP context
@@ -257,32 +257,26 @@ colima start
 docker compose up -d
 ```
 
-The compose file's host port is parameterized via `CADDY_HOST_PORT` (defaults to `443`). On Linux with native Docker, leave it at the default.
+`docker compose` refuses to start unless `NEXUS_HOST` is set in `.env` — the hostname is machine-specific and no tracked file carries a default.
 
-#### 5a. macOS + colima: publish Caddy on 8443 and front it with `tailscale serve`
+#### 5a. Tailnet-only exposure: Caddy on loopback + `tailscale serve` (the default)
 
-colima on macOS does not reliably forward privileged ports (`80`/`443`) from the VM to the host, and Mac App Store Tailscale uses userspace networking — traffic to the tailnet IP doesn't automatically reach host sockets. Both problems are solved with one workaround: publish Caddy on a high port and let `tailscale serve` forward `:443` to it.
+The compose file publishes Caddy on **`${CADDY_BIND:-127.0.0.1}:${CADDY_HOST_PORT:-8443}`**. Bound to loopback, the TLS port is reachable only on the machine itself; `tailscale serve` then forwards `:443` on the machine's *tailnet* address to it. Nothing on the LAN or Wi-Fi can reach Caddy, which is what "access via Tailscale only" in the checklist actually requires. (Publishing on `0.0.0.0:443`, the previous default, exposed the login page to every peer on the local network.) `start.sh` sets up the `tailscale serve` route automatically when `CADDY_BIND` is loopback; to do it by hand:
 
-1. In `.env`, set:
-   ```
-   CADDY_HOST_PORT=8443
-   ```
-2. Recreate Caddy so the new port mapping takes effect:
-   ```bash
-   docker compose up -d --force-recreate caddy
-   ```
-3. Configure `tailscale serve` as a TCP passthrough (Caddy keeps doing TLS):
-   ```bash
-   # path differs if installed from the Mac App Store vs Homebrew
-   TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
-   "$TS" funnel --https=443 off          # ensure Funnel is off (tailnet-only)
-   "$TS" serve reset
-   "$TS" serve --bg --tcp=443 tcp://localhost:8443
-   "$TS" serve status                    # verify
-   ```
-4. Sanity check: `curl -ks https://<your-machine>.tail<id>.ts.net/api/health` should return the backend health JSON.
+```bash
+# path differs if installed from the Mac App Store vs Homebrew
+TS=/Applications/Tailscale.app/Contents/MacOS/Tailscale
+"$TS" funnel --https=443 off          # ensure Funnel is off (tailnet-only)
+"$TS" serve reset
+"$TS" serve --bg --tcp=443 tcp://localhost:8443   # persists across reboots
+"$TS" serve status                    # verify
+```
 
-To revert (publish on 443 again): unset `CADDY_HOST_PORT` (or set it to `443`) in `.env`, run `docker compose up -d --force-recreate caddy`, and `tailscale serve reset`.
+Sanity check from another tailnet device: `curl -s https://<your-machine>.tail<id>.ts.net/api/health` → `{"status":"healthy"}`. From the LAN (not the tailnet) the port must be unreachable.
+
+This also sidesteps two macOS problems: colima does not reliably forward privileged ports (`80`/`443`) from its VM, and Mac App Store Tailscale uses userspace networking, so traffic to the tailnet IP does not automatically reach host sockets.
+
+If you must publish directly on a host interface (e.g. Linux without `tailscale serve`), set `CADDY_BIND` to the machine's Tailscale IPv4 (`tailscale ip -4`) rather than `0.0.0.0`, and `CADDY_HOST_PORT=443`. Recreate Caddy after any change: `docker compose up -d --force-recreate caddy`.
 
 ### 6. Start backend
 
@@ -477,19 +471,20 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `APP_SECRET` | Yes | Master key for AES-256-GCM TOTP secret encryption (≥ 32 chars) |
 | `JWT_SECRET` | Yes | HMAC-SHA256 JWT signing key (≥ 32 chars) |
 | `CRYPTO_SALT` | Yes | PBKDF2 salt for key derivation (≥ 16 chars) |
-| `NEXUS_HOST` | No | Hostname Caddy serves on this machine (default `ssowardm1.tail040188.ts.net`); matching cert/key must exist in `certs/` |
+| `NEXUS_HOST` | **Yes** (for Caddy) | This machine's tailnet hostname; Caddy's site address and cert filename (`certs/<NEXUS_HOST>.{crt,key}` must exist). No tracked file carries a default |
+| `CADDY_BIND` | No | Host interface Docker publishes the TLS port on (default `127.0.0.1` — tailnet access goes through `tailscale serve`). Use the machine's Tailscale IPv4 to publish directly; never `0.0.0.0` unless a host firewall blocks the LAN |
 | `RP_ID` | No | Machine-local WebAuthn relying-party ID; overrides `webauthn.rp_id` in `config.yml` |
 | `WEBAUTHN_ORIGIN` | No | Machine-local WebAuthn origin; overrides `webauthn.origin` in `config.yml` |
-| `CADDY_HOST_PORT` | No | Host port for Caddy (default `443`); use `8443` + `tailscale serve` on macOS/colima |
+| `CADDY_HOST_PORT` | No | Host port Caddy is published on (default `8443`, fronted by `tailscale serve --tcp=443`); `443` only makes sense together with `CADDY_BIND` set to the Tailscale IP |
 | `DOCKER_WAIT_SECS` | No | How long `start.sh` waits for a daemon it just launched (default `90`); raise it on slow machines |
 | `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
 | `TLS_DOMAIN` | No | Cert hostname to renew (falls back to `NEXUS_HOST`, then `webauthn.rp_id`) |
 | `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
 | `NEXUS_SETUP_TOKEN` | No | When set, `/api/auth/create-user` (the one-time owner registration) must present the same value in `setup_token`, so whoever reaches a fresh install first on the network cannot claim it. Remove it after the owner account exists |
-| `ANTHROPIC_API_KEY` | No | Not read by the backend; inherited by every PTY session so CLIs pick it up |
-| `DEEPSEEK_API_KEY` | No | Same — passed through to sessions for DeepSeek-aware CLIs |
+| `ANTHROPIC_API_KEY` | No | Not read by the backend; forwarded to PTY sessions **only because it is listed in `config.yml` → `session.pass_env`** |
+| `DEEPSEEK_API_KEY` | No | Same — listed in `session.pass_env` by default for DeepSeek-aware CLIs |
 
-> **Provider keys are visible to every session.** `pty_service.spawn` copies the backend's environment into each PTY, stripping only the four keys in `_SECRET_ENV_KEYS` (`APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT`, `SMTP_PASSWORD`). That pass-through is what makes `ANTHROPIC_API_KEY`/`DEEPSEEK_API_KEY` work without per-session setup, but it also means any shell, agent, or package postinstall script in a session can read them. Add a key to `_SECRET_ENV_KEYS` if the backend needs it but sessions should not see it. A new `.env` entry only reaches sessions after a backend restart — the launcher sources `.env` at startup.
+> **Sessions get an allowlisted environment.** `pty_service.spawn` builds each PTY's environment from a fixed base (`PATH`, `HOME`, `USER`, `SHELL`, `LANG`, `LC_*`, `XDG_*`, `TMPDIR`, `TZ`, `SSH_AUTH_SOCK`) plus the variable *names* in `config.yml` → `session.pass_env`. Nothing else in `.env` (SMTP credentials, setup token, future additions) reaches a session, and the app's own secrets (`APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT`, `SMTP_PASSWORD`, `NEXUS_SETUP_TOKEN`) are refused even if listed. Anything you *do* list is readable by every shell, agent, or package postinstall script in a session, so keep the list to what CLIs actually need. A new `.env` entry only reaches sessions after a backend restart — the launcher sources `.env` at startup.
 
 ### `config.yml` — non-secret runtime config
 
@@ -646,7 +641,7 @@ All API routes are under `/api/`.
 | GET/POST | `/api/pages` | Cookie | List / create |
 | PATCH/DELETE | `/api/pages/{id}` | Cookie | Update / delete |
 | **Monitoring** | | | |
-| GET | `/api/health` | — | Database, watchdog, PTY status + uptime |
+| GET | `/api/health` | — | `{"status"}` only for remote callers; database/watchdog/PTY detail, uptime and version are returned only when the resolved client IP is loopback (local probes) |
 | GET | `/api/metrics` | Cookie | Prometheus-format counters and gauges |
 
 ### WebSocket frames (JSON)
@@ -940,7 +935,8 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Step-up authentication | The JWT carries `mfa_time` (last second-factor verification; set at login, advanced only by `/api/auth/step-up`, preserved across `/refresh`). `require_recent_mfa` rejects account-changing requests whose `mfa_time` is older than 300 s with `403 {code: "step_up_required", methods: [...]}`; the client re-verifies any enrolled factor and retries. Guards password/e-mail change, account deletion, TOTP enrolment, passkey add/remove and the e-mail-code toggle. Failed TOTP/e-mail step-ups count toward the login lockout |
 | Last-factor guard | Removing the last passkey or disabling e-mail codes is refused (409) unless another factor remains, so an account can never silently drop to password-only |
 | Owner registration | `create-user` runs count-then-insert under a lock (one owner even under concurrent requests) and honours `NEXUS_SETUP_TOKEN` when set |
-| Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment. **Sessions still run as the Nexus OS user**, so they can read any file that user can — keep `.env` and `~/.nexus/nexus.db` at mode `0600` (the backend warns at startup if they are not). The security boundary is authentication, not process isolation |
+| Secret isolation | Spawned PTY sessions receive an **allowlisted** environment (base shell vars + `session.pass_env` names from `config.yml`); the app's own secrets are never forwarded. **Sessions still run as the Nexus OS user**, so they can read any file that user can — keep `.env` and `~/.nexus/nexus.db` at mode `0600` (the backend warns at startup if they are not). The security boundary is authentication, not process isolation |
+| Network exposure | Backend binds `127.0.0.1:8000`; Caddy is published on `127.0.0.1:8443` and reached only through `tailscale serve` (tailnet), never the LAN. `/api/health` returns only `{"status"}` to non-loopback callers |
 | Single-use tokens | WebAuthn challenges and email OTP codes are consumed with an atomic `UPDATE … WHERE used=0 RETURNING`, closing the read-then-update replay race |
 | Rate-limit IP trust | Forwarded-IP headers (`X-Real-IP`/`X-Forwarded-For`) are honored only when the direct peer is the local Caddy proxy (loopback or an RFC 1918 Docker bridge range — explicitly *not* the Tailscale 100.64/10 range); otherwise the limiter keys on the real peer so headers can't be spoofed to bypass limits. Audit rows use the same resolved client IP, so they record the tailnet address rather than the proxy |
 | Cross-site requests | Second CSRF layer on top of `SameSite=Strict`: `OriginCheckMiddleware` rejects any POST/PATCH/DELETE with `Sec-Fetch-Site: cross-site`, an opaque (`null`) Origin, or an `Origin` that is neither the configured WebAuthn origin nor the request's own Host. Requests without an Origin header (curl, `wctl.py`) pass and still need the cookie. The WebSocket handshake applies the same check (close code 4403), so a foreign page cannot open a terminal socket even with a token |
@@ -967,13 +963,15 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Passkey phishing | `rp_id` binds credential to exact hostname |
 | Clickjacking | `frame-ancestors 'none'` + `X-Frame-Options: DENY` |
 | XSS via terminal | xterm.js renders ANSI, not HTML; strict CSP blocks inline scripts |
-| Direct port exposure | Backend binds `127.0.0.1:8000`; not reachable externally |
+| Direct port exposure | Backend binds `127.0.0.1:8000`; Caddy binds `127.0.0.1:8443`; only `tailscale serve` (tailnet peers) reaches the TLS port — LAN/Wi-Fi peers cannot |
+| Session process reading secrets | Allowlisted child environment; `.env`/DB kept `0600` with a startup warning; the app's signing/encryption secrets are never forwarded |
 
 ### Pre-production checklist
 
 - [ ] Generate unique `APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT` — never reuse across installs
 - [ ] Confirm `.env` is in `.gitignore` and never committed; `chmod 600 .env` (session shells run as the same user)
-- [ ] Access via Tailscale or VPN only
+- [ ] Access via Tailscale only: keep `CADDY_BIND=127.0.0.1` + `tailscale serve`, confirm `tailscale funnel` is off, and verify the TLS port is unreachable from the LAN
+- [ ] Set `NEXUS_HOST`, `RP_ID`, `WEBAUTHN_ORIGIN` in `.env` (never in tracked files); optionally `NEXUS_SETUP_TOKEN` until the owner account exists
 - [ ] Provision TLS cert and configure Caddy for HTTPS
 - [ ] Create your user account and set up MFA
 - [ ] Verify `127.0.0.1:8000` is not publicly routable: `ss -tlnp | grep 8000`

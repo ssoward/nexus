@@ -2,14 +2,18 @@ services:
   caddy:
     image: caddy:2.8-alpine
     environment:
-      # Hostname Caddy serves (site address + cert filename). Set NEXUS_HOST in
-      # .env on machines other than M1 (e.g. ssowardm5.tail040188.ts.net).
-      NEXUS_HOST: ${NEXUS_HOST:-ssowardm1.tail040188.ts.net}
+      # Hostname Caddy serves (site address + cert filename). Required — set
+      # NEXUS_HOST in this machine's .env (e.g. your-machine.tail12345.ts.net).
+      NEXUS_HOST: ${NEXUS_HOST:?set NEXUS_HOST in .env to this machine's tailnet hostname}
     ports:
-      # Defaults to 443; on hosts that can't reliably bind privileged ports
-      # (e.g. macOS + colima), set CADDY_HOST_PORT=8443 in .env and front it
-      # with: tailscale serve --tcp=443 tcp://localhost:8443
-      - "${CADDY_HOST_PORT:-443}:443"
+      # CADDY_BIND is the host interface Docker publishes the TLS port on.
+      # Default 127.0.0.1: reachable only on this machine, so front it with
+      #   tailscale serve --bg --tcp=443 tcp://localhost:${CADDY_HOST_PORT:-8443}
+      # which exposes it to the tailnet ONLY. Setting CADDY_BIND=0.0.0.0 also
+      # exposes the port to every LAN/Wi-Fi peer of this machine — don't unless
+      # you have a host firewall doing the same job.
+      # CADDY_HOST_PORT defaults to 8443 because macOS cannot reliably bind 443.
+      - "${CADDY_BIND:-127.0.0.1}:${CADDY_HOST_PORT:-8443}:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - ./frontend/dist:/srv:ro

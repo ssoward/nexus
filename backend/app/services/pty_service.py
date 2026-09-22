@@ -23,16 +23,48 @@ logger = logging.getLogger(__name__)
 # This is intentionally not persisted — if the backend restarts, open fds are gone.
 _active: dict[str, dict] = {}
 
-# Secrets that live in the backend's own environment (exported from .env by the
-# launcher) must NOT be inherited by spawned shells/REPLs/agents. Any process in a
-# session (including `claude` or a third-party CLI's postinstall) could otherwise read
-# JWT_SECRET to forge tokens or CRYPTO_SALT/APP_SECRET to decrypt stored TOTP secrets.
+# Sessions get an ALLOWLISTED environment, not a copy of the backend's. The
+# launcher exports every line of .env into the backend process, so a denylist
+# would leak whatever gets added next (SMTP credentials, provider keys, setup
+# tokens). Any process in a session — `claude`, a third-party CLI's postinstall,
+# a pasted script — runs as this same OS user and can read what we hand it.
+#
+# Exact names that always pass:
+_BASE_ENV_KEYS = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TMPDIR", "TZ",
+    "LANG", "LANGUAGE", "COLORTERM",
+    "SSH_AUTH_SOCK",            # the user's own agent — needed for git over SSH
+    "__CF_USER_TEXT_ENCODING",  # macOS locale plumbing
+})
+# Prefixes that always pass:
+_BASE_ENV_PREFIXES = ("LC_", "XDG_")
+# Never forwarded, even if named in session.pass_env: the app's own secrets.
 _SECRET_ENV_KEYS = frozenset({
     "APP_SECRET",
     "JWT_SECRET",
     "CRYPTO_SALT",
     "SMTP_PASSWORD",
+    "NEXUS_SETUP_TOKEN",
 })
+
+
+def _child_env(extra: dict) -> dict:
+    """Build the environment for a spawned session from the allowlist plus
+    the operator's `session.pass_env` list (config.yml), e.g. ANTHROPIC_API_KEY."""
+    from app.config import get_settings
+    try:
+        pass_env = set(get_settings().session_pass_env or [])
+    except Exception:  # settings unavailable (unit tests without env) — base only
+        pass_env = set()
+    env: dict[str, str] = {}
+    for k, v in os.environ.items():
+        if k in _SECRET_ENV_KEYS:
+            continue
+        if k in _BASE_ENV_KEYS or k.startswith(_BASE_ENV_PREFIXES) or k in pass_env:
+            env[k] = v
+    env.update(extra)
+    env["TERM"] = "xterm-256color"
+    return env
 
 
 def _set_winsize(fd: int, rows: int, cols: int) -> None:
@@ -69,8 +101,7 @@ def spawn(session_id: str, cmd: list[str], env: dict, cols: int, rows: int) -> i
     try:
         _set_winsize(slave_fd, rows, cols)
 
-        base_env = {k: v for k, v in os.environ.items() if k not in _SECRET_ENV_KEYS}
-        env_merged = {**base_env, **env, "TERM": "xterm-256color"}
+        env_merged = _child_env(env)
 
         proc = subprocess.Popen(
             cmd,

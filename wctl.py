@@ -12,12 +12,15 @@ Usage:
   wctl.py --url URL --cookie COOKIE broadcast "text"
 
 Authentication:
-  Pass the access_token cookie value obtained after login.
-  Example: --cookie "eyJhbGciOi..."
+  The value of the __Host-access_token cookie obtained after login. Prefer the
+  NEXUS_COOKIE environment variable or --cookie-file PATH; passing it with
+  --cookie puts the session token into shell history and `ps` output.
+  Example: NEXUS_COOKIE="eyJhbGciOi..." wctl.py --url https://host states
 """
 
 import argparse
 import json
+import os
 import sys
 import time
 import urllib.request
@@ -98,7 +101,8 @@ def cmd_broadcast(base: str, cookie: str, args):
 def main():
     parser = argparse.ArgumentParser(description="Nexus terminal orchestration CLI")
     parser.add_argument("--url", required=True, help="Base URL (e.g., https://nexus.example.com)")
-    parser.add_argument("--cookie", required=True, help="access_token cookie value")
+    parser.add_argument("--cookie", help="__Host-access_token cookie value (visible in shell history/ps — prefer NEXUS_COOKIE or --cookie-file)")
+    parser.add_argument("--cookie-file", help="File containing the cookie value (mode 600 recommended)")
 
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -126,6 +130,17 @@ def main():
 
     args = parser.parse_args()
     base = args.url.rstrip("/")
+
+    cookie = args.cookie or os.environ.get("NEXUS_COOKIE", "")
+    if not cookie and args.cookie_file:
+        with open(args.cookie_file) as f:
+            cookie = f.read().strip()
+    if not cookie:
+        print("error: provide the session cookie via NEXUS_COOKIE, --cookie-file, or --cookie", file=sys.stderr)
+        sys.exit(2)
+    if args.cookie:
+        print("warning: --cookie exposes the session token in shell history and ps; prefer NEXUS_COOKIE or --cookie-file", file=sys.stderr)
+    args.cookie = cookie
 
     commands = {
         "sessions": cmd_sessions,

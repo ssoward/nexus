@@ -3,9 +3,9 @@
   auto_https off
 }
 
-# NEXUS_HOST is injected by docker-compose (default ssowardm1.tail040188.ts.net;
-# override per machine via NEXUS_HOST in .env). The matching cert/key pair must
-# exist in certs/ on that machine.
+# NEXUS_HOST is injected by docker-compose from this machine's .env (required —
+# it is the tailnet hostname users reach the app on). The matching cert/key
+# pair must exist in certs/ on that machine.
 {$NEXUS_HOST} {
   tls /certs/{$NEXUS_HOST}.crt /certs/{$NEXUS_HOST}.key
 
