@@ -4,6 +4,7 @@ export interface User {
   mfa_method?: string | null
   has_totp?: boolean
   has_passkey?: boolean
+  has_email_otp?: boolean
   passkey_count?: number
 }
 

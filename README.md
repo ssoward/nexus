@@ -48,7 +48,10 @@ Typical uses:
 - **TOTP two-factor** — Google Authenticator, Authy, 1Password; QR setup in the login flow; replay protection
 - **Email OTP** — 6-digit codes via SMTP, bcrypt-hashed, 10-minute TTL, single-use
 - **MFA method selector** — when multiple methods are registered, login presents an Okta-style card picker (Face ID / Authenticator / Email); only registered methods are shown
-- **Flexible MFA switching** — switch between TOTP, email code, or passkey from the login verification screen without re-registering
+- **Flexible MFA switching** — verify with any factor you have *enrolled* (passkey, authenticator app, or e-mail codes) from the login verification screen; the password alone can never turn on a factor you did not enrol, and every default-method change is audited and e-mailed to you
+- **Step-up verification** — changing your password, e-mail or passkeys, adding an authenticator, toggling e-mail codes, or deleting the account asks you to re-verify a second factor if the session's last verification is older than 5 minutes, so a stolen cookie cannot be turned into a permanent takeover
+- **E-mail codes are opt-in** — off by default; enable them in Settings → Security (step-up required) if you want a mailbox fallback
+- **Security notifications** — password, e-mail, MFA-method, passkey and recovery changes send a plain-text e-mail to the account address (and, for e-mail changes, to the old address too) when SMTP is configured
 - **Account recovery** — "Lost access to authenticator?" emails a single-use reset link (15-min TTL)
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required
 - **Account lockout** — 5 failed password/OTP attempts → 15-minute lockout of the credential endpoints; already-signed-in devices and passkey sign-in are unaffected, so a remote guesser cannot lock the owner out
@@ -71,7 +74,7 @@ Typical uses:
 - **Mastermind** — paste the `/mastermind` command into a Claude Code session to activate an autonomous coordinator that reads all session buffers, decides what to type, and reschedules itself via `CronCreate`
 
 ### Settings & Account Management
-- **Settings panel** — Profile (change email), Display (interface scale + terminal font size), Security (change password), Passkeys (list/add/remove keys), Danger Zone (delete account with typed confirmation)
+- **Settings panel** — Profile (change email), Display (interface scale + terminal font size), Security (enrolled factors, e-mail codes on/off, change password), Passkeys (list/add/remove keys — the last passkey cannot be removed unless another factor is enrolled), Danger Zone (delete account with typed confirmation). Account-changing actions prompt for step-up verification when needed
 - **Web page embedding** — embed HTTPS pages as sandboxed iframes in a split panel alongside terminals (desktop) or full-screen overlay (mobile)
 - **Workspace grouping** — named, color-coded groups for organizing sessions
 - **Prometheus metrics** — `GET /api/metrics` exposes `sessions_active`, `ws_connections`, `pty_bytes_read`, uptime
@@ -482,6 +485,7 @@ WEBAUTHN_ORIGIN=https://your-machine.tail12345.ts.net
 | `TLS_AUTO_RENEW` | No | `true` to auto-renew the Tailscale cert and reload Caddy (default off) |
 | `TLS_DOMAIN` | No | Cert hostname to renew (falls back to `NEXUS_HOST`, then `webauthn.rp_id`) |
 | `TLS_CERT_DIR` | No | Where the cert/key live (default `./certs`); relative paths resolve against the repo root |
+| `NEXUS_SETUP_TOKEN` | No | When set, `/api/auth/create-user` (the one-time owner registration) must present the same value in `setup_token`, so whoever reaches a fresh install first on the network cannot claim it. Remove it after the owner account exists |
 | `ANTHROPIC_API_KEY` | No | Not read by the backend; inherited by every PTY session so CLIs pick it up |
 | `DEEPSEEK_API_KEY` | No | Same — passed through to sessions for DeepSeek-aware CLIs |
 
@@ -593,10 +597,20 @@ All API routes are under `/api/`.
 | **Auth** | | | |
 | POST | `/api/auth/login` | — | `username`, `password`, `totp_code` (optional first step) |
 | POST | `/api/auth/logout` | Cookie | Revokes JWT, clears cookie |
-| GET | `/api/auth/me` | Cookie | Returns `{id, username, mfa_method, has_totp}` |
-| POST | `/api/auth/create-user` | — | Self-registration (disabled after first user) |
-| POST | `/api/auth/setup-mfa` | Form password | Choose TOTP or email_otp |
-| POST | `/api/auth/switch-mfa` | Form password | Switch between TOTP and email OTP |
+| GET | `/api/auth/me` | Cookie | Returns `{id, username, mfa_method, has_totp, has_passkey, has_email_otp, passkey_count}` |
+| POST | `/api/auth/create-user` | — (+ `setup_token` if `NEXUS_SETUP_TOKEN` is set) | Owner registration (disabled after first user; serialized) |
+| POST | `/api/auth/setup-mfa` | Form password | Choose TOTP or email_otp (first-time only) |
+| POST | `/api/auth/switch-mfa` | Form password | Select an already-**enrolled** factor as default (audited + e-mailed); 409 if not enrolled |
+| POST | `/api/auth/change-password` | Cookie + step-up | Rotate password; evicts every other session |
+| PATCH | `/api/auth/change-email` | Cookie + step-up | Change account e-mail; notifies old and new address |
+| DELETE | `/api/auth/account` | Cookie + step-up | Delete account |
+| POST | `/api/auth/setup-totp` | Cookie + step-up | Enrol/replace authenticator app |
+| POST | `/api/auth/email-otp/enable` | Cookie + step-up | Enrol e-mail codes as a factor (sends a test code) |
+| POST | `/api/auth/email-otp/disable` | Cookie + step-up | Stop accepting e-mail codes (409 if it is the only factor) |
+| GET | `/api/auth/step-up/methods` | Cookie | Factors this session can step up with |
+| POST | `/api/auth/step-up/email/send` | Cookie | Send an e-mail code for step-up |
+| POST | `/api/auth/step-up/passkey/begin` | Cookie | Assertion options for passkey step-up |
+| POST | `/api/auth/step-up` | Cookie | `{method, code?, credential?}` — verify a factor, re-issue cookie with fresh `mfa_time` |
 | POST | `/api/auth/resend-otp` | Form password | Resend email OTP code |
 | POST | `/api/auth/recovery/request` | — | Send MFA reset link |
 | POST | `/api/auth/recovery/reset` | — | Consume recovery token, clear MFA |
@@ -609,10 +623,10 @@ All API routes are under `/api/`.
 | POST | `/api/auth/passkey/authenticate/complete` | — | Verify assertion, issue cookie |
 | POST | `/api/auth/passkey/login/begin` | — | Passwordless login — no username required |
 | POST | `/api/auth/passkey/login/complete` | — | Verify passwordless assertion |
-| POST | `/api/auth/passkey/register/begin` | Cookie | Add an additional passkey |
-| POST | `/api/auth/passkey/register/complete` | Cookie | Complete adding a new passkey |
+| POST | `/api/auth/passkey/register/begin` | Cookie + step-up | Add an additional passkey |
+| POST | `/api/auth/passkey/register/complete` | Cookie + step-up | Complete adding a new passkey |
 | GET | `/api/auth/passkey/credentials` | Cookie | List registered passkeys |
-| DELETE | `/api/auth/passkey/credentials/{id}` | Cookie | Remove a passkey |
+| DELETE | `/api/auth/passkey/credentials/{id}` | Cookie + step-up | Remove a passkey (409 if it is the last factor) |
 | **Sessions** | | | |
 | GET | `/api/sessions` | Cookie | List all sessions |
 | POST | `/api/sessions` | Cookie | Create a session (spawns PTY) |
@@ -922,7 +936,10 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Rate limiting | slowapi: 10 login/min, 5/min TOTP setup and registration, 30/min refresh, 3/hour recovery |
 | Account lockout | 5 failed password/TOTP/email-OTP attempts → 15-minute lockout of the credential endpoints (`/login`, `/setup-mfa`, `/switch-mfa`, `/resend-otp`, `/bootstrap-totp`). Deliberately **not** enforced on already-issued tokens or on passkey assertions: a passkey cannot be guessed, and enforcing the lock there let anyone who knew the owner's email evict the owner's live sessions with five bad passwords |
 | JWT revocation | Logout inserts JTI into `revoked_tokens`; password change, email change, and MFA recovery stamp `users.tokens_valid_after`, rejecting **every** token issued earlier (evicts sessions on other devices, not just the current cookie) |
-| MFA integrity | Switching to an MFA method never provisions a *new* factor from a password-only request — `/switch-mfa` only selects among already-enrolled factors, and `/bootstrap-totp` refuses once any MFA is configured, so knowing the password alone can't downgrade a passkey/email-OTP account |
+| MFA integrity | Switching to an MFA method never provisions a *new* factor from a password-only request — `/switch-mfa` only selects among already-**enrolled** factors (passkey credentials, a TOTP secret, or `email_otp_enrolled = 1`), writes an `MFA_METHOD_CHANGED` audit row and e-mails the owner; `/bootstrap-totp` refuses once any MFA is configured. E-mail codes are never implied by the password: they must be enrolled at first setup or from Settings with step-up |
+| Step-up authentication | The JWT carries `mfa_time` (last second-factor verification; set at login, advanced only by `/api/auth/step-up`, preserved across `/refresh`). `require_recent_mfa` rejects account-changing requests whose `mfa_time` is older than 300 s with `403 {code: "step_up_required", methods: [...]}`; the client re-verifies any enrolled factor and retries. Guards password/e-mail change, account deletion, TOTP enrolment, passkey add/remove and the e-mail-code toggle. Failed TOTP/e-mail step-ups count toward the login lockout |
+| Last-factor guard | Removing the last passkey or disabling e-mail codes is refused (409) unless another factor remains, so an account can never silently drop to password-only |
+| Owner registration | `create-user` runs count-then-insert under a lock (one owner even under concurrent requests) and honours `NEXUS_SETUP_TOKEN` when set |
 | Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment. **Sessions still run as the Nexus OS user**, so they can read any file that user can — keep `.env` and `~/.nexus/nexus.db` at mode `0600` (the backend warns at startup if they are not). The security boundary is authentication, not process isolation |
 | Single-use tokens | WebAuthn challenges and email OTP codes are consumed with an atomic `UPDATE … WHERE used=0 RETURNING`, closing the read-then-update replay race |
 | Rate-limit IP trust | Forwarded-IP headers (`X-Real-IP`/`X-Forwarded-For`) are honored only when the direct peer is a loopback/private proxy; otherwise the limiter keys on the real peer so headers can't be spoofed to bypass limits |
@@ -939,7 +956,8 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Threat | Mitigation |
 |--------|-----------|
 | Stolen cookie | httpOnly + Secure + SameSite=Strict + `__Host-` prefix; revocation on logout; `tokens_valid_after` eviction on password/email change or recovery; 30-day absolute ceiling from the original login (`session.absolute_max_hours`) |
-| Brute force | Rate limiting + account lockout |
+| Stolen cookie **plus** password | Step-up: changing e-mail/password/passkeys/authenticators or deleting the account needs a second factor verified within 5 minutes; e-mail changes notify the old address; MFA switching only selects enrolled factors and is audited + e-mailed |
+| Brute force | Rate limiting + account lockout on guessable factors (password, TOTP, e-mail code) — including step-up attempts |
 | TOTP replay | Codes recorded with timestamp; reuse within 90 s rejected |
 | JWT forgery | HS256 with ≥ 32-byte secret; PyJWT validates `exp`, `iat` |
 | WS session hijack | Single-use tokens; 60-second TTL; atomic consume |

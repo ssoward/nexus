@@ -1,10 +1,15 @@
 from datetime import datetime, timezone
-from fastapi import Cookie, HTTPException, status
+from fastapi import Cookie, Depends, HTTPException, Request, status
 from typing import Optional
 
 from app.config import get_settings
 from app.database import db
 from app.services.token_service import decode_access_token
+
+# How recently a second factor must have been verified (JWT `mfa_time`) before
+# an account-changing action is allowed. Older than this → 403 step_up_required
+# and the client re-verifies via /api/auth/step-up, which re-issues the cookie.
+STEP_UP_MAX_AGE_SECONDS = 300
 
 
 # `__Host-` prefix: browsers only accept the cookie when it is Secure, has no
@@ -77,3 +82,38 @@ async def get_current_user(access_token: Optional[str] = Cookie(default=None, al
             raise credentials_exception
 
     return row
+
+
+async def require_recent_mfa(
+    request: Request,
+    current_user: dict = Depends(get_current_user),
+) -> dict:
+    """Gate for account-changing endpoints: the session's second factor must have
+    been verified within STEP_UP_MAX_AGE_SECONDS.
+
+    A stolen cookie (plus, for some actions, the password) must not be enough to
+    change the e-mail, rotate the password, add or remove authenticators, or
+    delete the account — each of those would turn a transient session theft into
+    a permanent takeover. Tokens issued before `mfa_time` existed fall back to
+    `auth_time`, which is almost always stale, so they simply get prompted once.
+    """
+    token = request.cookies.get(COOKIE_NAME)
+    payload = decode_access_token(token) if token else None
+    mfa_time = None
+    if payload:
+        mfa_time = payload.get("mfa_time", payload.get("auth_time"))
+    fresh = (
+        mfa_time is not None
+        and datetime.now(timezone.utc).timestamp() - float(mfa_time) <= STEP_UP_MAX_AGE_SECONDS
+    )
+    if not fresh:
+        from app.services.auth_service import available_mfa_methods
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "code": "step_up_required",
+                "methods": await available_mfa_methods(current_user["id"]),
+                "max_age_seconds": STEP_UP_MAX_AGE_SECONDS,
+            },
+        )
+    return current_user

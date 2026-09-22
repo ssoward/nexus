@@ -186,3 +186,60 @@ async def _increment_failed_login(user_id: int, ip: Optional[str]) -> None:
         await _write_audit(user_id, AuditAction.LOGIN_LOCKED, {"failed_attempts": count}, ip)
     else:
         await _write_audit(user_id, AuditAction.LOGIN_FAILURE, {"failed_attempts": count}, ip)
+
+
+async def available_mfa_methods(user_id: int) -> list[str]:
+    """Every second factor the user has actually enrolled.
+
+    Email OTP counts only when explicitly enrolled (email_otp_enrolled); it is
+    never implied by the password alone, otherwise /switch-mfa and /step-up would
+    let a password-only caller downgrade a passkey account to mailbox security.
+    """
+    row = await db.fetchone(
+        "SELECT encrypted_totp_secret, email_otp_enrolled FROM users WHERE id = ?",
+        (user_id,),
+    )
+    if not row:
+        return []
+    methods: list[str] = []
+    passkey_row = await db.fetchone(
+        "SELECT 1 FROM passkey_credentials WHERE user_id = ? LIMIT 1", (user_id,)
+    )
+    if passkey_row:
+        methods.append("passkey")
+    if row["encrypted_totp_secret"]:
+        methods.append("totp")
+    if row["email_otp_enrolled"]:
+        methods.append("email_otp")
+    return methods
+
+
+async def verify_totp_for_user(user_id: int, code: str) -> bool:
+    """Verify a TOTP code for step-up, with the same replay guard as login."""
+    row = await db.fetchone(
+        "SELECT encrypted_totp_secret, last_totp_code, last_totp_at FROM users WHERE id = ?",
+        (user_id,),
+    )
+    if not row or not row["encrypted_totp_secret"] or not code:
+        return False
+    try:
+        secret = decrypt_totp_secret(bytes(row["encrypted_totp_secret"]), user_id)
+    except Exception:
+        return False
+    if not pyotp.TOTP(secret).verify(code, valid_window=1):
+        return False
+    if row["last_totp_code"] == code and row["last_totp_at"]:
+        last_at = datetime.fromisoformat(row["last_totp_at"])
+        if last_at.tzinfo is None:
+            last_at = last_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - last_at < timedelta(seconds=90):
+            return False
+    await db.execute(
+        "UPDATE users SET last_totp_code = ?, last_totp_at = ? WHERE id = ?",
+        (code, datetime.now(timezone.utc).isoformat(), user_id),
+    )
+    return True
+
+
+# Public name for the lockout bookkeeping so step-up failures count like login failures.
+record_auth_failure = _increment_failed_login

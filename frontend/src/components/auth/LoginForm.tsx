@@ -22,6 +22,7 @@ export function LoginForm() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [setupToken, setSetupToken] = useState('')
   const [code, setCode] = useState('')
   const [qrCode, setQrCode] = useState('')
   const [error, setError] = useState('')
@@ -72,7 +73,7 @@ export function LoginForm() {
     if (password !== confirmPassword) { setError('Passwords do not match'); return }
     setLoading(true); setError('')
     try {
-      await register(email, password)
+      await register(email, password, setupToken.trim() || undefined)
       setStep('mfa_choice')
     } catch (err: unknown) {
       const resp = (err as { response?: { status: number; data?: { detail?: unknown } } }).response
@@ -351,6 +352,12 @@ export function LoginForm() {
                   autoComplete="new-password"
                   className="w-full bg-terminal-bg border border-terminal-border rounded px-3 py-2 pr-10 text-sm font-mono text-terminal-fg focus:outline-none focus:border-terminal-active" />
               </div>
+            </div>
+            <div>
+              <label className="block text-xs font-mono text-terminal-fg/60 mb-1">Setup token <span className="text-terminal-fg/30">(only if this instance requires one)</span></label>
+              <input type="password" value={setupToken} onChange={(e) => setSetupToken(e.target.value)}
+                autoComplete="off" placeholder="NEXUS_SETUP_TOKEN from the server's .env"
+                className="w-full bg-terminal-bg border border-terminal-border rounded px-3 py-2 text-sm font-mono text-terminal-fg focus:outline-none focus:border-terminal-active" />
             </div>
             {error && <p className="text-xs text-red-400 font-mono">{error}</p>}
             <button type="submit" disabled={loading}

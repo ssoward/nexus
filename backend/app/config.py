@@ -91,6 +91,11 @@ class Settings(BaseSettings):
     # TOTP config
     totp_issuer: str = "Nexus"
 
+    # Optional gate on first-user registration (env NEXUS_SETUP_TOKEN). When set,
+    # /api/auth/create-user requires the same value, so whoever can reach the
+    # host on the network first cannot claim ownership of a fresh install.
+    nexus_setup_token: str = ""
+
     # WebAuthn / Passkey
     rp_id: str = "localhost"
     rp_name: str = "Nexus"

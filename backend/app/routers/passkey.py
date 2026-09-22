@@ -22,9 +22,11 @@ from webauthn.helpers.structs import (
 from app.config import get_settings
 from app.crypto import verify_password
 from app.database import db
-from app.dependencies import get_current_user
+from app.dependencies import get_current_user, require_recent_mfa
 from app.limiter import limiter
 from app.models.audit import AuditAction
+from app.services.auth_service import available_mfa_methods
+from app.services.notify import notify
 from app.services.token_service import create_access_token
 
 logger = logging.getLogger(__name__)
@@ -323,9 +325,9 @@ async def authenticate_complete(request: Request, response: Response, req: AuthC
 @limiter.limit("5/minute")
 async def register_begin(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
 ):
-    """Begin passkey registration for an already-authenticated user."""
+    """Begin passkey registration for an already-authenticated user (step-up required)."""
     s = get_settings()
     options = webauthn.generate_registration_options(
         rp_id=s.rp_id,
@@ -352,9 +354,9 @@ class RegisterCompleteRequest(BaseModel):
 async def register_complete(
     request: Request,
     req: RegisterCompleteRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
 ):
-    """Complete passkey registration for an already-authenticated user."""
+    """Complete passkey registration for an already-authenticated user (step-up required)."""
     expected_challenge = await _consume_challenge(current_user["id"], "register")
     s = get_settings()
 
@@ -390,6 +392,7 @@ async def register_complete(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
         (current_user["id"], AuditAction.PASSKEY_REGISTER.value, request.client.host if request.client else None),
     )
+    await notify(current_user["username"], "PASSKEY_ADDED", f"Passkey name: {req.name or 'unnamed'}.")
     return {"ok": True}
 
 
@@ -416,14 +419,30 @@ async def list_credentials(current_user: dict = Depends(get_current_user)):
 async def delete_credential(
     request: Request,
     cred_id: int,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
 ):
+    """Remove a passkey (step-up required). Never leaves the account without a second factor."""
     row = await db.fetchone(
-        "SELECT id FROM passkey_credentials WHERE id = ? AND user_id = ?",
+        "SELECT id, name FROM passkey_credentials WHERE id = ? AND user_id = ?",
         (cred_id, current_user["id"]),
     )
     if not row:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Credential not found")
+
+    remaining = await db.fetchone(
+        "SELECT COUNT(*) AS n FROM passkey_credentials WHERE user_id = ?",
+        (current_user["id"],),
+    )
+    is_last = bool(remaining and remaining["n"] <= 1)
+    if is_last:
+        others = [m for m in await available_mfa_methods(current_user["id"]) if m != "passkey"]
+        if not others:
+            # Removing the last factor would leave mfa_method NULL, i.e. a
+            # password-only account that anyone with the password could re-enrol.
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Add an authenticator app or enable e-mail codes before removing your last passkey.",
+            )
 
     await db.execute("DELETE FROM passkey_credentials WHERE id = ?", (cred_id,))
     await db.execute(
@@ -431,13 +450,12 @@ async def delete_credential(
         (current_user["id"], AuditAction.PASSKEY_DELETE.value, request.client.host if request.client else None),
     )
 
-    remaining = await db.fetchone(
-        "SELECT COUNT(*) AS n FROM passkey_credentials WHERE user_id = ?",
-        (current_user["id"],),
-    )
-    if remaining and remaining["n"] == 0:
-        await db.execute("UPDATE users SET mfa_method = NULL WHERE id = ?", (current_user["id"],))
+    if is_last:
+        # Fall back to another enrolled factor as the default sign-in method.
+        fallback = others[0]
+        await db.execute("UPDATE users SET mfa_method = ? WHERE id = ?", (fallback, current_user["id"]))
 
+    await notify(current_user["username"], "PASSKEY_REMOVED", f"Passkey name: {row['name'] or 'unnamed'}.")
     return {"ok": True}
 
 

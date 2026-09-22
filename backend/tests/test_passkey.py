@@ -170,18 +170,52 @@ class TestCredentialManagement:
         assert r.status_code == 200
         assert len(r.json()) == 1
 
-    async def test_delete_last_credential_clears_mfa_method(self, auth_client, setup_db):
+    async def test_delete_last_credential_refused_without_another_factor(self, auth_client, setup_db):
+        """Removing the only second factor would leave a password-only account that
+        anyone holding the password could re-enrol — refuse with 409."""
         ac, user = auth_client
         cred_id = await _seed_passkey(setup_db, user["id"])
         await setup_db.execute(
             "UPDATE users SET mfa_method = 'passkey' WHERE id = ?", (user["id"],)
         )
         r = await ac.delete(f"/api/auth/passkey/credentials/{cred_id}")
+        assert r.status_code == 409
+        row = await setup_db.fetchone(
+            "SELECT mfa_method FROM users WHERE id = ?", (user["id"],)
+        )
+        assert row["mfa_method"] == "passkey"
+        remaining = await setup_db.fetchone(
+            "SELECT COUNT(*) AS n FROM passkey_credentials WHERE user_id = ?", (user["id"],)
+        )
+        assert remaining["n"] == 1
+
+    async def test_delete_last_credential_falls_back_to_other_factor(self, auth_client, setup_db):
+        ac, user = auth_client
+        cred_id = await _seed_passkey(setup_db, user["id"])
+        await setup_db.execute(
+            "UPDATE users SET mfa_method = 'passkey', encrypted_totp_secret = ? WHERE id = ?",
+            (encrypt_totp_secret("JBSWY3DPEHPK3PXP", user["id"]), user["id"]),
+        )
+        r = await ac.delete(f"/api/auth/passkey/credentials/{cred_id}")
         assert r.status_code == 200
         row = await setup_db.fetchone(
             "SELECT mfa_method FROM users WHERE id = ?", (user["id"],)
         )
-        assert row["mfa_method"] is None
+        assert row["mfa_method"] == "totp"
+
+    async def test_delete_requires_recent_step_up(self, client: AsyncClient, setup_db, test_user):
+        """A session whose second factor was verified long ago gets 403 step_up_required."""
+        from app.services.token_service import create_access_token
+        import time
+        cred_id = await _seed_passkey(setup_db, test_user["id"])
+        stale = create_access_token(test_user["id"], mfa_time=time.time() - 3600)
+        r = await client.delete(
+            f"/api/auth/passkey/credentials/{cred_id}",
+            cookies={"__Host-access_token": stale},
+        )
+        assert r.status_code == 403
+        assert r.json()["detail"]["code"] == "step_up_required"
+        assert "passkey" in r.json()["detail"]["methods"]
 
     async def test_cannot_delete_another_users_credential(self, auth_client, setup_db):
         ac, _ = auth_client

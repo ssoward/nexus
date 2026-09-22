@@ -17,10 +17,19 @@ from pydantic import BaseModel, field_validator
 from app.config import get_settings
 from app.crypto import encrypt_totp_secret, hash_password
 from app.database import db
-from app.dependencies import COOKIE_NAME, get_current_user
-from app.limiter import limiter
-from app.services.auth_service import authenticate_user, NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY, _DUMMY_HASH
+from app.dependencies import COOKIE_NAME, get_current_user, require_recent_mfa
+from app.limiter import _real_ip, limiter
+from app.models.audit import AuditAction
+from app.services.auth_service import (
+    authenticate_user, available_mfa_methods,
+    NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY, _DUMMY_HASH,
+)
+from app.services.notify import notify
 from app.services.token_service import create_access_token, create_ws_token, decode_access_token
+
+# Serialises first-user registration so two concurrent requests cannot both
+# pass the "no users yet" check and both become owners.
+_first_user_lock = asyncio.Lock()
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -49,24 +58,11 @@ def _set_auth_cookie(response: Response, token: str) -> None:
 
 
 async def _available_mfa_methods(username: str) -> list[str]:
-    """Return all MFA methods the user has configured credentials for."""
-    row = await db.fetchone(
-        "SELECT id, mfa_method, encrypted_totp_secret FROM users WHERE username = ?",
-        (username,),
-    )
+    """Return all MFA methods the user has enrolled (see auth_service.available_mfa_methods)."""
+    row = await db.fetchone("SELECT id FROM users WHERE username = ?", (username,))
     if not row:
         return []
-    methods: list[str] = []
-    passkey_row = await db.fetchone(
-        "SELECT 1 FROM passkey_credentials WHERE user_id = ? LIMIT 1", (row["id"],)
-    )
-    if passkey_row:
-        methods.append("passkey")
-    if row["encrypted_totp_secret"]:
-        methods.append("totp")
-    if row["mfa_method"] == "email_otp":
-        methods.append("email_otp")
-    return methods
+    return await available_mfa_methods(row["id"])
 
 
 @router.post("/login")
@@ -120,11 +116,14 @@ async def refresh_token(
     # still invalidates every session issued before the change.
     cookie = request.cookies.get(COOKIE_NAME)
     auth_time = None
+    mfa_time = None
     if cookie:
         payload = decode_access_token(cookie)
         if payload:
             auth_time = payload.get("auth_time")
-    token = create_access_token(current_user["id"], auth_time=auth_time)
+            # mfa_time is only ever advanced by /step-up; refresh carries it along.
+            mfa_time = payload.get("mfa_time", auth_time)
+    token = create_access_token(current_user["id"], auth_time=auth_time, mfa_time=mfa_time)
     _set_auth_cookie(response, token)
     return {"ok": True}
 
@@ -197,15 +196,15 @@ class TotpSetupResponse(BaseModel):
 @limiter.limit("5/minute")
 async def setup_totp(
     request: Request,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
     totp_code: str = Form(default=""),
 ):
     """
     Set up TOTP for the authenticated user.
-    Only callable by the user for their own account (auth cookie required).
-    If TOTP is already configured, the current code must be provided to authorize
-    the replacement — prevents an attacker with a hijacked session from locking
-    out the real user.
+    Requires a recent second-factor verification (step-up) — a hijacked cookie
+    alone must not be able to plant a new authenticator. If TOTP is already
+    configured, the current code must additionally be provided to authorize the
+    replacement.
     """
     s = get_settings()
 
@@ -239,8 +238,9 @@ async def setup_totp(
     )
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (current_user["id"], "TOTP_SETUP", request.client.host if request.client else None),
+        (current_user["id"], "TOTP_SETUP", _real_ip(request)),
     )
+    await notify(current_user["username"], "TOTP_ENROLLED", ip=_real_ip(request))
 
     totp = pyotp.TOTP(secret)
     uri = totp.provisioning_uri(name=current_user["username"], issuer_name=s.totp_issuer)
@@ -257,7 +257,7 @@ async def setup_totp(
 @limiter.limit("30/minute")
 async def me(request: Request, current_user: dict = Depends(get_current_user)):
     row = await db.fetchone(
-        "SELECT encrypted_totp_secret, mfa_method FROM users WHERE id = ?",
+        "SELECT encrypted_totp_secret, mfa_method, email_otp_enrolled FROM users WHERE id = ?",
         (current_user["id"],),
     )
     passkey_count_row = await db.fetchone(
@@ -271,6 +271,7 @@ async def me(request: Request, current_user: dict = Depends(get_current_user)):
         "mfa_method": row["mfa_method"] if row else None,
         "has_totp": bool(row and row["encrypted_totp_secret"]),
         "has_passkey": passkey_count > 0,
+        "has_email_otp": bool(row and row["email_otp_enrolled"]),
         "passkey_count": passkey_count,
     }
 
@@ -278,6 +279,7 @@ async def me(request: Request, current_user: dict = Depends(get_current_user)):
 class CreateUserRequest(BaseModel):
     username: str
     password: str
+    setup_token: str = ""
 
     @field_validator("username")
     @classmethod
@@ -370,30 +372,37 @@ async def bootstrap_totp(
 @router.post("/create-user")
 @limiter.limit("5/minute")
 async def create_user(request: Request, req: CreateUserRequest):
-    """Register a new account. After creation, the user must set up MFA."""
-    user_count = await db.fetchone("SELECT COUNT(*) AS n FROM users")
-    if user_count and user_count["n"] > 0:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Registration is closed — this instance already has an owner",
+    """Register the instance owner. After creation, the user must set up MFA.
+
+    Single-owner instance: only the first account can ever be created. The
+    count-then-insert runs under a lock so concurrent requests cannot both win,
+    and when NEXUS_SETUP_TOKEN is configured the request must present it, so
+    whoever reaches a fresh install first on the network cannot claim it.
+    """
+    s = get_settings()
+    hashed = hash_password(req.password)  # outside the lock: bcrypt is slow
+    async with _first_user_lock:
+        user_count = await db.fetchone("SELECT COUNT(*) AS n FROM users")
+        if user_count and user_count["n"] > 0:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Registration is closed — this instance already has an owner",
+            )
+        if s.nexus_setup_token and not secrets.compare_digest(
+            req.setup_token or "", s.nexus_setup_token
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="A valid setup token is required to create the owner account on this instance",
+            )
+        await db.execute(
+            "INSERT INTO users (username, hashed_password) VALUES (?, ?)",
+            (req.username, hashed),
         )
-    existing = await db.fetchone(
-        "SELECT id FROM users WHERE username = ?", (req.username,)
-    )
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists",
-        )
-    hashed = hash_password(req.password)
-    await db.execute(
-        "INSERT INTO users (username, hashed_password) VALUES (?, ?)",
-        (req.username, hashed),
-    )
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) "
         "SELECT id, 'USER_CREATE', ? FROM users WHERE username = ?",
-        (request.client.host if request.client else None, req.username),
+        (_real_ip(request), req.username),
     )
     return {"ok": True, "message": "Account created. Set up MFA to continue."}
 
@@ -449,7 +458,7 @@ async def setup_mfa(
 
     else:  # email_otp
         await db.execute(
-            "UPDATE users SET mfa_method = 'email_otp' WHERE id = ?",
+            "UPDATE users SET mfa_method = 'email_otp', email_otp_enrolled = 1 WHERE id = ?",
             (row["id"],),
         )
         await db.execute(
@@ -517,28 +526,41 @@ async def switch_mfa(
     if not vp(password, row["hashed_password"]):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if method == "totp":
-        # SECURITY (C1): switch-mfa authenticates with password only — it must NEVER
-        # provision a NEW second factor here, or an attacker who knows just the password
-        # could enroll their own TOTP secret and bypass a passkey/email-OTP factor.
-        # Only allow switching to TOTP if the user has ALREADY enrolled an authenticator
-        # (verified out-of-band via setup-totp, which requires the current factor/session).
-        if not row["encrypted_totp_secret"]:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="No authenticator app is set up. Add one from Settings while signed in.",
-            )
-        await db.execute("UPDATE users SET mfa_method = 'totp' WHERE id = ?", (row["id"],))
-        return {"method": "totp", "needs_setup": False}
+    # SECURITY (C1/M2): switch-mfa authenticates with the password only — it must
+    # NEVER provision a new second factor, and it may only select among factors the
+    # user has ALREADY enrolled (TOTP via setup-totp, e-mail codes via setup-mfa or
+    # Settings with step-up). Otherwise anyone holding just the password could move
+    # a passkey account onto a weaker factor. The change is audited and the owner
+    # is notified, so a silent downgrade is not possible.
+    enrolled = await available_mfa_methods(row["id"])
+    if method not in enrolled:
+        detail = (
+            "No authenticator app is set up. Add one from Settings while signed in."
+            if method == "totp"
+            else "E-mail codes are not enabled for this account. Enable them from Settings while signed in."
+        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=detail)
 
-    else:  # email_otp
+    previous = row["mfa_method"]
+    if method == "email_otp":
         from app.services.otp_service import send_email_otp
         try:
             await send_email_otp(row["id"], username)
         except RuntimeError as exc:
             raise HTTPException(status_code=503, detail=str(exc))
-        await db.execute("UPDATE users SET mfa_method = 'email_otp' WHERE id = ?", (row["id"],))
-        return {"method": "email_otp", "needs_setup": False}
+
+    if previous != method:
+        await db.execute("UPDATE users SET mfa_method = ? WHERE id = ?", (method, row["id"]))
+        ip = _real_ip(request)
+        await db.execute(
+            "INSERT INTO audit_log (user_id, action, detail, ip_address) VALUES (?, ?, ?, ?)",
+            (row["id"], AuditAction.MFA_METHOD_CHANGED.value,
+             json.dumps({"from": previous, "to": method, "via": "switch-mfa"}), ip),
+        )
+        await notify(username, "MFA_METHOD_CHANGED",
+                     f"Default sign-in verification changed from {previous or 'none'} to {method} "
+                     f"(from the sign-in screen, using your password).", ip=ip)
+    return {"method": method, "needs_setup": False}
 
 
 RECOVERY_TTL_MINUTES = 15
@@ -608,14 +630,22 @@ async def reset_recovery(
     # Clear ALL second factors, not just TOTP — recovery is meant to force full
     # MFA re-enrollment, so a previously-registered passkey must stop authenticating.
     await db.execute(
-        "UPDATE users SET encrypted_totp_secret = NULL, mfa_method = NULL, tokens_valid_after = ? WHERE id = ?",
+        "UPDATE users SET encrypted_totp_secret = NULL, mfa_method = NULL, email_otp_enrolled = 0, "
+        "tokens_valid_after = ? WHERE id = ?",
         (datetime.now(timezone.utc).isoformat(), user_id),
     )
     await db.execute("DELETE FROM passkey_credentials WHERE user_id = ?", (user_id,))
+    ip = _real_ip(request)
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (user_id, "MFA_RESET_VIA_RECOVERY", request.client.host if request.client else "unknown"),
+        (user_id, "MFA_RESET_VIA_RECOVERY", ip),
     )
+    owner = await db.fetchone("SELECT username FROM users WHERE id = ?", (user_id,))
+    if owner:
+        await notify(owner["username"], "MFA_RESET_VIA_RECOVERY",
+                     "All passkeys, authenticator apps and e-mail codes were removed via a recovery link; "
+                     "every signed-in session was ended. You will be asked to enrol a new method at next sign-in.",
+                     ip=ip)
 
     return {"ok": True}
 
@@ -648,7 +678,7 @@ async def change_password(
     request: Request,
     response: Response,
     req: ChangePasswordRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
 ):
     row = await db.fetchone(
         "SELECT hashed_password FROM users WHERE id = ?", (current_user["id"],)
@@ -679,10 +709,13 @@ async def change_password(
                     (jti, current_user["id"], expires_at),
                 )
 
+    ip = _real_ip(request)
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (current_user["id"], "PASSWORD_CHANGED", request.client.host if request.client else None),
+        (current_user["id"], "PASSWORD_CHANGED", ip),
     )
+    await notify(current_user["username"], "PASSWORD_CHANGED",
+                 "Every other signed-in session has been ended.", ip=ip)
     new_token = create_access_token(current_user["id"])
     _set_auth_cookie(response, new_token)
     return {"ok": True}
@@ -713,7 +746,7 @@ async def change_email(
     request: Request,
     response: Response,
     req: ChangeEmailRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
 ):
     row = await db.fetchone(
         "SELECT hashed_password FROM users WHERE id = ?", (current_user["id"],)
@@ -745,10 +778,16 @@ async def change_email(
                     (jti, current_user["id"], expires_at),
                 )
 
+    ip = _real_ip(request)
     await db.execute(
         "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (current_user["id"], "EMAIL_CHANGED", request.client.host if request.client else None),
+        (current_user["id"], "EMAIL_CHANGED", ip),
     )
+    # Tell BOTH addresses: the old one is the only channel the real owner still
+    # controls if this change was made by someone else.
+    detail = f"Account e-mail changed from {current_user['username']} to {req.new_email}."
+    await notify(current_user["username"], "EMAIL_CHANGED", detail, ip=ip)
+    await notify(req.new_email, "EMAIL_CHANGED", detail, ip=ip)
     new_token = create_access_token(current_user["id"])
     _set_auth_cookie(response, new_token)
     return {"ok": True, "username": req.new_email}
@@ -766,7 +805,7 @@ async def delete_account(
     request: Request,
     response: Response,
     req: DeleteAccountRequest,
-    current_user: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_recent_mfa),
 ):
     row = await db.fetchone(
         "SELECT hashed_password FROM users WHERE id = ?", (current_user["id"],)
@@ -776,6 +815,7 @@ async def delete_account(
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Password is incorrect")
 
     uid = current_user["id"]
+    await notify(current_user["username"], "ACCOUNT_DELETED", ip=_real_ip(request))
     await db.execute("DELETE FROM passkey_credentials WHERE user_id = ?", (uid,))
     await db.execute("DELETE FROM webauthn_challenges WHERE user_id = ?", (uid,))
     await db.execute("DELETE FROM account_recovery_tokens WHERE user_id = ?", (uid,))
@@ -786,4 +826,52 @@ async def delete_account(
     )
     await db.execute("DELETE FROM users WHERE id = ?", (uid,))
     _clear_auth_cookie(response)
+    return {"ok": True}
+
+
+# ── E-mail codes as an enrolled factor (authenticated + step-up) ──────────────
+
+@router.post("/email-otp/enable")
+@limiter.limit("5/minute")
+async def enable_email_otp(request: Request, current_user: dict = Depends(require_recent_mfa)):
+    """Enrol e-mail codes as a sign-in factor. Sends a code so the mailbox is exercised
+    immediately; SMTP must be configured or this fails before anything changes."""
+    from app.services.otp_service import send_email_otp
+    try:
+        await send_email_otp(current_user["id"], current_user["username"])
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc))
+    await db.execute("UPDATE users SET email_otp_enrolled = 1 WHERE id = ?", (current_user["id"],))
+    ip = _real_ip(request)
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (current_user["id"], AuditAction.EMAIL_OTP_ENABLED.value, ip),
+    )
+    await notify(current_user["username"], "EMAIL_OTP_ENABLED",
+                 "Codes sent to this address can now be used as your second factor.", ip=ip)
+    return {"ok": True}
+
+
+@router.post("/email-otp/disable")
+@limiter.limit("5/minute")
+async def disable_email_otp(request: Request, current_user: dict = Depends(require_recent_mfa)):
+    """Stop accepting e-mail codes. Refused if that would leave the account with no second factor."""
+    others = [m for m in await available_mfa_methods(current_user["id"]) if m != "email_otp"]
+    if not others:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Add a passkey or authenticator app before disabling e-mail codes.",
+        )
+    row = await db.fetchone("SELECT mfa_method FROM users WHERE id = ?", (current_user["id"],))
+    new_default = others[0] if row and row["mfa_method"] == "email_otp" else (row["mfa_method"] if row else None)
+    await db.execute(
+        "UPDATE users SET email_otp_enrolled = 0, mfa_method = ? WHERE id = ?",
+        (new_default, current_user["id"]),
+    )
+    ip = _real_ip(request)
+    await db.execute(
+        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+        (current_user["id"], AuditAction.EMAIL_OTP_DISABLED.value, ip),
+    )
+    await notify(current_user["username"], "EMAIL_OTP_DISABLED", ip=ip)
     return {"ok": True}

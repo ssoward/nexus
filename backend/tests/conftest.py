@@ -29,6 +29,7 @@ from app.routers import (
     orchestration as orchestration_router,
     pages as pages_router,
     workspaces as workspaces_router,
+    stepup as stepup_router,
 )
 
 # One-time crypto init — matches what app lifespan does
@@ -54,6 +55,7 @@ _SCHEMA = [
         last_totp_at           TEXT,
         mfa_method             TEXT DEFAULT NULL,
         tokens_valid_after     TEXT,
+        email_otp_enrolled     INTEGER NOT NULL DEFAULT 0,
         created_at             TEXT NOT NULL DEFAULT (datetime('now'))
     )""",
     """CREATE TABLE IF NOT EXISTS sessions (
@@ -168,6 +170,7 @@ def _make_app() -> FastAPI:
     app.include_router(orchestration_router.router)
     app.include_router(pages_router.router)
     app.include_router(workspaces_router.router)
+    app.include_router(stepup_router.router)
     return app
 
 

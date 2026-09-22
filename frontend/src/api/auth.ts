@@ -27,8 +27,13 @@ export async function getMe(): Promise<User> {
 export async function register(
   email: string,
   password: string,
+  setupToken?: string,
 ): Promise<RegisterResponse> {
-  const res = await client.post<RegisterResponse>('/auth/create-user', { username: email, password })
+  const res = await client.post<RegisterResponse>('/auth/create-user', {
+    username: email,
+    password,
+    setup_token: setupToken ?? '',
+  })
   return res.data
 }
 
@@ -196,4 +201,59 @@ export async function completePasswordlessAuth(
     challenge_token: challengeToken,
   })
   return res.data
+}
+
+// ── Step-up (re-verify a second factor inside the current session) ────────────
+//
+// Account-changing endpoints answer 403 {detail:{code:'step_up_required', methods}}
+// when the session's second factor was verified more than a few minutes ago.
+// The client then verifies one of `methods` here; the server re-issues the cookie
+// and the original request can be retried.
+
+export type StepUpMethod = 'passkey' | 'totp' | 'email_otp'
+
+export interface StepUpRequiredDetail {
+  code: 'step_up_required'
+  methods: StepUpMethod[]
+  max_age_seconds: number
+}
+
+/** Returns the step-up detail if `err` is a 403 step_up_required, else null. */
+export function asStepUpRequired(err: unknown): StepUpRequiredDetail | null {
+  const resp = (err as { response?: { status?: number; data?: { detail?: unknown } } }).response
+  const detail = resp?.data?.detail as Partial<StepUpRequiredDetail> | undefined
+  if (resp?.status === 403 && detail && detail.code === 'step_up_required') {
+    return { code: 'step_up_required', methods: detail.methods ?? [], max_age_seconds: detail.max_age_seconds ?? 300 }
+  }
+  return null
+}
+
+export async function getStepUpMethods(): Promise<StepUpMethod[]> {
+  const res = await client.get<{ methods: StepUpMethod[] }>('/auth/step-up/methods')
+  return res.data.methods
+}
+
+export async function stepUpSendEmailCode(): Promise<void> {
+  await client.post('/auth/step-up/email/send')
+}
+
+export async function stepUpPasskeyBegin(): Promise<PublicKeyCredentialRequestOptionsJSON> {
+  const res = await client.post<PublicKeyCredentialRequestOptionsJSON>('/auth/step-up/passkey/begin')
+  return res.data
+}
+
+export async function stepUp(
+  method: StepUpMethod,
+  code?: string,
+  credential?: AuthenticationResponseJSON,
+): Promise<void> {
+  await client.post('/auth/step-up', { method, code: code ?? '', credential: credential ?? null })
+}
+
+export async function enableEmailOtp(): Promise<void> {
+  await client.post('/auth/email-otp/enable')
+}
+
+export async function disableEmailOtp(): Promise<void> {
+  await client.post('/auth/email-otp/disable')
 }

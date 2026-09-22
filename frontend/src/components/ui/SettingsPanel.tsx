@@ -9,8 +9,14 @@ import {
   listPasskeyCredentials,
   deletePasskeyCredential,
   getMe,
+  asStepUpRequired,
+  enableEmailOtp,
+  disableEmailOtp,
+  type StepUpMethod,
 } from '@/api/auth'
+import { StepUpModal } from '@/components/auth/StepUpModal'
 import { useAuthStore } from '@/store/authStore'
+import { toast } from '@/store/toastStore'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import {
   useDisplayStore,
@@ -98,6 +104,25 @@ export function SettingsPanel({ onClose }: Props) {
   const isMobile = useIsMobile()
   const [activeSection, setActiveSection] = useState<Section>('profile')
 
+  // ── Step-up (fresh second factor before account changes) ───────────
+  // Account-changing calls answer 403 step_up_required when the session's
+  // second factor is older than a few minutes. `withStepUp` runs an action,
+  // and on that response opens the StepUpModal and re-runs the action once
+  // the user has re-verified (the server re-issues the cookie).
+  const [stepUp, setStepUp] = useState<{
+    methods: StepUpMethod[]; purpose: string; retry: () => Promise<void>
+  } | null>(null)
+
+  const withStepUp = useCallback(async (purpose: string, action: () => Promise<void>) => {
+    try {
+      await action()
+    } catch (err: unknown) {
+      const needed = asStepUpRequired(err)
+      if (!needed) throw err
+      setStepUp({ methods: needed.methods, purpose, retry: action })
+    }
+  }, [])
+
   // ── Display / accessibility zoom ───────────────────────────────────
   const uiScale = useDisplayStore((st) => st.uiScale)
   const terminalFontSize = useDisplayStore((st) => st.terminalFontSize)
@@ -116,11 +141,13 @@ export function SettingsPanel({ onClose }: Props) {
     if (!newEmail || !emailPw) return
     setEmailLoading(true); setEmailMsg(null)
     try {
-      const res = await changeEmail(emailPw, newEmail)
-      const me = await getMe()
-      setUser(me)
-      setEmailMsg({ ok: true, text: `Email updated to ${res.username}` })
-      setNewEmail(''); setEmailPw('')
+      await withStepUp('change your e-mail address', async () => {
+        const res = await changeEmail(emailPw, newEmail)
+        const me = await getMe()
+        setUser(me)
+        setEmailMsg({ ok: true, text: `Email updated to ${res.username}` })
+        setNewEmail(''); setEmailPw('')
+      })
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string }; status?: number } }).response
       if (detail?.status === 409) setEmailMsg({ ok: false, text: 'Email already in use.' })
@@ -142,9 +169,11 @@ export function SettingsPanel({ onClose }: Props) {
     if (newPw !== confirmPw) { setPwMsg({ ok: false, text: 'New passwords do not match.' }); return }
     setPwLoading(true); setPwMsg(null)
     try {
-      await changePassword(curPw, newPw)
-      setPwMsg({ ok: true, text: 'Password updated successfully.' })
-      setCurPw(''); setNewPw(''); setConfirmPw('')
+      await withStepUp('change your password', async () => {
+        await changePassword(curPw, newPw)
+        setPwMsg({ ok: true, text: 'Password updated successfully.' })
+        setCurPw(''); setNewPw(''); setConfirmPw('')
+      })
     } catch (err: unknown) {
       const detail = (err as { response?: { data?: { detail?: string }; status?: number } }).response
       if (detail?.status === 401) setPwMsg({ ok: false, text: 'Current password is incorrect.' })
@@ -175,13 +204,15 @@ export function SettingsPanel({ onClose }: Props) {
   const handleAddPasskey = async () => {
     setPasskeyLoading(true); setPasskeyMsg(null)
     try {
-      const options = await registerPasskeyBegin()
-      const credential = await startRegistration({ optionsJSON: options })
-      await registerPasskeyComplete(credential, passkeyName || undefined)
-      setPasskeyMsg({ ok: true, text: 'Passkey registered successfully.' })
-      setPasskeyName('')
-      await loadPasskeys()
-      setUser(await getMe())
+      await withStepUp('add a passkey', async () => {
+        const options = await registerPasskeyBegin()
+        const credential = await startRegistration({ optionsJSON: options })
+        await registerPasskeyComplete(credential, passkeyName || undefined)
+        setPasskeyMsg({ ok: true, text: 'Passkey registered successfully.' })
+        setPasskeyName('')
+        await loadPasskeys()
+        setUser(await getMe())
+      })
     } catch (err: unknown) {
       const name = (err as { name?: string }).name
       if (name === 'NotAllowedError') setPasskeyMsg({ ok: false, text: 'Biometric cancelled or not allowed.' })
@@ -193,12 +224,37 @@ export function SettingsPanel({ onClose }: Props) {
   const handleDeletePasskey = async (id: number) => {
     setDeletingId(id); setPasskeyMsg(null)
     try {
-      await deletePasskeyCredential(id)
-      await loadPasskeys()
-      setUser(await getMe())
-    } catch {
-      setPasskeyMsg({ ok: false, text: 'Failed to delete passkey.' })
+      await withStepUp('remove a passkey', async () => {
+        await deletePasskeyCredential(id)
+        await loadPasskeys()
+        setUser(await getMe())
+      })
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: { detail?: string } } }).response
+      if (resp?.status === 409) setPasskeyMsg({ ok: false, text: resp.data?.detail ?? 'Add another sign-in method first.' })
+      else setPasskeyMsg({ ok: false, text: 'Failed to delete passkey.' })
     } finally { setDeletingId(null) }
+  }
+
+  // ── E-mail codes as a second factor ────────────────────────────────
+  const [emailOtpMsg, setEmailOtpMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [emailOtpLoading, setEmailOtpLoading] = useState(false)
+
+  const handleToggleEmailOtp = async () => {
+    setEmailOtpLoading(true); setEmailOtpMsg(null)
+    const enabling = !user?.has_email_otp
+    try {
+      await withStepUp(enabling ? 'enable e-mail codes' : 'disable e-mail codes', async () => {
+        if (enabling) await enableEmailOtp()
+        else await disableEmailOtp()
+        setUser(await getMe())
+        setEmailOtpMsg({ ok: true, text: enabling ? 'E-mail codes enabled. A test code was sent to your address.' : 'E-mail codes disabled.' })
+      })
+    } catch (err: unknown) {
+      const resp = (err as { response?: { status?: number; data?: { detail?: string } } }).response
+      if (resp?.status === 409 || resp?.status === 503) setEmailOtpMsg({ ok: false, text: resp.data?.detail ?? 'Not possible right now.' })
+      else setEmailOtpMsg({ ok: false, text: 'Failed to update e-mail code setting.' })
+    } finally { setEmailOtpLoading(false) }
   }
 
   // ── Delete account ─────────────────────────────────────────────────
@@ -214,8 +270,10 @@ export function SettingsPanel({ onClose }: Props) {
     }
     setDeleteLoading(true); setDeleteMsg(null)
     try {
-      await deleteAccount(deletePw)
-      window.location.href = '/login'
+      await withStepUp('delete your account', async () => {
+        await deleteAccount(deletePw)
+        window.location.href = '/login'
+      })
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } }).response?.status
       setDeleteMsg({ ok: false, text: status === 401 ? 'Password is incorrect.' : 'Failed to delete account.' })
@@ -244,6 +302,22 @@ export function SettingsPanel({ onClose }: Props) {
 
   return (
     <div className="flex flex-col h-full min-h-0 bg-[#161b22]">
+      {stepUp && (
+        <StepUpModal
+          methods={stepUp.methods}
+          purpose={stepUp.purpose}
+          onCancel={() => setStepUp(null)}
+          onSuccess={() => {
+            const { retry } = stepUp
+            setStepUp(null)
+            // The cookie now carries a fresh mfa_time; re-run the original action.
+            void retry().catch((err: unknown) => {
+              const detail = (err as { response?: { data?: { detail?: unknown } } }).response?.data?.detail
+              toast.error(typeof detail === 'string' ? detail : 'The change could not be applied. Try again.')
+            })
+          }}
+        />
+      )}
       {/* Panel header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-terminal-border shrink-0">
         <span className={`${isMobile ? 'text-sm' : 'text-xs'} font-mono text-terminal-fg/60 uppercase tracking-wider`}>
@@ -350,10 +424,41 @@ export function SettingsPanel({ onClose }: Props) {
         {activeSection === 'security' && (
           <div>
             <SectionHeader label="Two-Factor Authentication" mobile={isMobile} />
-            <div className="flex items-center gap-2 mb-4">
-              <span className={`${bodySz} font-mono text-terminal-fg/60`}>Method:</span>
+            <div className="flex items-center gap-2 mb-2">
+              <span className={`${bodySz} font-mono text-terminal-fg/60`}>Default method:</span>
               <StatusBadge {...mfaLabel()} mobile={isMobile} />
             </div>
+            <div className="flex flex-wrap items-center gap-1.5 mb-4">
+              <span className={`${msgSz} font-mono text-terminal-fg/40`}>Enrolled:</span>
+              {user?.has_passkey && <StatusBadge label="Passkey" variant="green" mobile={isMobile} />}
+              {user?.has_totp && <StatusBadge label="Authenticator" variant="blue" mobile={isMobile} />}
+              {user?.has_email_otp && <StatusBadge label="E-mail codes" variant="yellow" mobile={isMobile} />}
+              {!user?.has_passkey && !user?.has_totp && !user?.has_email_otp && (
+                <StatusBadge label="None" variant="gray" mobile={isMobile} />
+              )}
+            </div>
+
+            <SectionHeader label="E-mail Codes" mobile={isMobile} />
+            <p className={`${msgSz} font-mono text-terminal-fg/40 mb-2 leading-relaxed`}>
+              Allow a 6-digit code sent to your account e-mail as a second factor. Off by default:
+              anyone who can read your mailbox could then sign in with just your password.
+              Changing this, your password, e-mail or passkeys asks you to re-verify first.
+            </p>
+            {emailOtpMsg && (
+              <p className={`${msgSz} font-mono mb-2 ${emailOtpMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{emailOtpMsg.text}</p>
+            )}
+            <button
+              type="button"
+              onClick={handleToggleEmailOtp}
+              disabled={emailOtpLoading}
+              className={`w-full py-2 mb-4 rounded border font-mono ${btnSz} disabled:opacity-40 ${
+                user?.has_email_otp
+                  ? 'border-red-800 text-red-400 hover:bg-red-900/20'
+                  : 'border-terminal-border text-terminal-fg/80 hover:border-terminal-active hover:text-terminal-fg'
+              }`}
+            >
+              {emailOtpLoading ? 'Working…' : user?.has_email_otp ? 'Disable E-mail Codes' : 'Enable E-mail Codes'}
+            </button>
 
             <SectionHeader label="Change Password" mobile={isMobile} />
             <form onSubmit={handleChangePassword} className="space-y-2">

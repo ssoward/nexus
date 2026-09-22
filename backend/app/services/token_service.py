@@ -11,15 +11,29 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def create_access_token(user_id: int, auth_time: float | None = None) -> str:
+def create_access_token(
+    user_id: int,
+    auth_time: float | None = None,
+    mfa_time: float | None = None,
+) -> str:
+    """Mint an access token.
+
+    auth_time — the ORIGINAL login; propagated unchanged through refresh and
+                step-up so the absolute ceiling and tokens_valid_after keep working.
+    mfa_time  — the last time a second factor was verified; refreshed only by a
+                successful /step-up. Sensitive account changes require it to be
+                recent (see dependencies.require_recent_mfa).
+    """
     s = get_settings()
     now = _utcnow()
+    now_ts = now.timestamp()
     payload = {
         "sub": str(user_id),
         "iat": now,
         "exp": now + timedelta(minutes=s.jwt_expire_minutes),
         "jti": str(uuid.uuid4()),
-        "auth_time": auth_time or now.timestamp(),
+        "auth_time": auth_time or now_ts,
+        "mfa_time": mfa_time or now_ts,
     }
     return jwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
 
