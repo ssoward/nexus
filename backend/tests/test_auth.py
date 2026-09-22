@@ -42,7 +42,7 @@ class TestLogin:
         body = r.json()
         assert body["ok"] is False
         assert body["needs_mfa_setup"] is True
-        assert "access_token" not in r.cookies
+        assert "__Host-access_token" not in r.cookies
 
     async def test_wrong_password(self, client: AsyncClient, test_user: dict):
         r = await client.post(
@@ -154,9 +154,12 @@ class TestLogout:
         assert r.status_code == 200
         assert r.json()["ok"] is True
 
-    async def test_unauthenticated_returns_401(self, client: AsyncClient, setup_db):
+    async def test_unauthenticated_returns_ok_and_clears_cookie(self, client: AsyncClient, setup_db):
+        # Best-effort logout: a user whose token is already dead must still be
+        # able to clear the cookie instead of looping between /login and 401.
         r = await client.post("/api/auth/logout")
-        assert r.status_code == 401
+        assert r.status_code == 200
+        assert "__Host-access_token=" in r.headers.get("set-cookie", "")
 
     async def test_token_recorded_in_revoked_table(self, auth_client, setup_db):
         ac, _ = auth_client
@@ -184,7 +187,7 @@ class TestMe:
 
     async def test_invalid_cookie_returns_401(self, client: AsyncClient, setup_db):
         r = await client.get(
-            "/api/auth/me", cookies={"access_token": "not-a-real-token"}
+            "/api/auth/me", cookies={"__Host-access_token": "not-a-real-token"}
         )
         assert r.status_code == 401
 
@@ -357,7 +360,7 @@ class TestTokenInvalidation:
             "UPDATE users SET tokens_valid_after = ? WHERE id = ?",
             (_dt.fromtimestamp(future, tz=timezone.utc).isoformat(), test_user["id"]),
         )
-        r = await client.get("/api/auth/me", cookies={"access_token": old_token})
+        r = await client.get("/api/auth/me", cookies={"__Host-access_token": old_token})
         assert r.status_code == 401
 
 
@@ -434,8 +437,9 @@ class TestSqlInjectionPayloads:
 class TestNoAbsoluteSessionTimeout:
     """Sessions never age out — only explicit logout or credential-change eviction ends them."""
 
-    async def test_old_auth_time_accepted(self, client: AsyncClient, test_user):
-        """A token with a months-old auth_time must still be accepted while exp is in the future."""
+    async def test_old_auth_time_rejected_by_default_ceiling(self, client: AsyncClient, test_user):
+        """Default session_absolute_max_hours is 30 days: a 90-day-old login is dead
+        even though exp is still in the future (H2). Refresh cannot resurrect it."""
         import jwt as pyjwt
         from app.config import get_settings
         import uuid
@@ -453,8 +457,8 @@ class TestNoAbsoluteSessionTimeout:
             "auth_time": old_auth_time,
         }
         old_token = pyjwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
-        r = await client.get("/api/auth/me", cookies={"access_token": old_token})
-        assert r.status_code == 200
+        r = await client.get("/api/auth/me", cookies={"__Host-access_token": old_token})
+        assert r.status_code == 401
 
     async def test_fresh_auth_time_accepted(self, auth_client):
         """A normally-issued token (auth_time = now) must be accepted."""
@@ -464,7 +468,7 @@ class TestNoAbsoluteSessionTimeout:
 
 
 class TestAbsoluteSessionCeiling:
-    """Opt-in absolute re-auth ceiling (session_absolute_max_hours). Default 0 = off."""
+    """Absolute re-auth ceiling (session_absolute_max_hours). Default 720 h; 0 turns it off."""
 
     def _token(self, user_id, auth_age_hours):
         import jwt as pyjwt
@@ -488,7 +492,7 @@ class TestAbsoluteSessionCeiling:
         s = get_settings()
         s.session_absolute_max_hours = 0  # explicit default
         token = self._token(test_user["id"], auth_age_hours=1000)
-        r = await client.get("/api/auth/me", cookies={"access_token": token})
+        r = await client.get("/api/auth/me", cookies={"__Host-access_token": token})
         assert r.status_code == 200
 
     async def test_ceiling_rejects_token_past_limit(self, client: AsyncClient, test_user):
@@ -497,7 +501,7 @@ class TestAbsoluteSessionCeiling:
         s.session_absolute_max_hours = 24
         try:
             token = self._token(test_user["id"], auth_age_hours=48)
-            r = await client.get("/api/auth/me", cookies={"access_token": token})
+            r = await client.get("/api/auth/me", cookies={"__Host-access_token": token})
             assert r.status_code == 401
         finally:
             s.session_absolute_max_hours = 0
@@ -508,7 +512,7 @@ class TestAbsoluteSessionCeiling:
         s.session_absolute_max_hours = 24
         try:
             token = self._token(test_user["id"], auth_age_hours=2)
-            r = await client.get("/api/auth/me", cookies={"access_token": token})
+            r = await client.get("/api/auth/me", cookies={"__Host-access_token": token})
             assert r.status_code == 200
         finally:
             s.session_absolute_max_hours = 0
@@ -608,3 +612,89 @@ class TestRecovery:
 
         r2 = await client.post("/api/auth/recovery/reset", data={"token": token})
         assert r2.status_code == 400
+
+
+class TestLockoutDoesNotEvictIssuedTokens:
+    """H1: a password-guessing storm must not kick the owner out of live sessions."""
+
+    async def test_locked_user_existing_token_still_valid(
+        self, client: AsyncClient, setup_db, test_user
+    ):
+        from datetime import datetime, timedelta, timezone
+        from app.services.token_service import create_access_token
+
+        token = create_access_token(test_user["id"])
+        lockout = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        await setup_db.execute(
+            "UPDATE users SET failed_login_count = 5, lockout_until = ? WHERE id = ?",
+            (lockout, test_user["id"]),
+        )
+        r = await client.get("/api/auth/me", cookies={"__Host-access_token": token})
+        assert r.status_code == 200
+        assert r.json()["username"] == test_user["username"]
+
+    async def test_locked_user_password_login_still_refused(
+        self, client: AsyncClient, setup_db, test_user
+    ):
+        from datetime import datetime, timedelta, timezone
+
+        lockout = (datetime.now(timezone.utc) + timedelta(minutes=15)).isoformat()
+        await setup_db.execute(
+            "UPDATE users SET failed_login_count = 5, lockout_until = ? WHERE id = ?",
+            (lockout, test_user["id"]),
+        )
+        r = await client.post(
+            "/api/auth/login",
+            data={"username": test_user["username"], "password": test_user["password"]},
+        )
+        assert r.status_code == 401
+
+
+class TestBestEffortLogout:
+    async def test_logout_without_valid_cookie_still_clears_cookie(self, client: AsyncClient, setup_db):
+        r = await client.post("/api/auth/logout", cookies={"__Host-access_token": "garbage"})
+        assert r.status_code == 200
+        set_cookie = r.headers.get("set-cookie", "")
+        assert "__Host-access_token=" in set_cookie
+        assert "Max-Age=0" in set_cookie or "expires=" in set_cookie.lower()
+        assert "Secure" in set_cookie
+
+    async def test_logout_with_no_cookie_returns_ok(self, client: AsyncClient, setup_db):
+        r = await client.post("/api/auth/logout")
+        assert r.status_code == 200
+
+    async def test_logout_revokes_valid_token(self, client: AsyncClient, setup_db, test_user):
+        from app.services.token_service import create_access_token, decode_access_token
+
+        token = create_access_token(test_user["id"])
+        jti = decode_access_token(token)["jti"]
+        r = await client.post("/api/auth/logout", cookies={"__Host-access_token": token})
+        assert r.status_code == 200
+        row = await setup_db.fetchone("SELECT jti FROM revoked_tokens WHERE jti = ?", (jti,))
+        assert row is not None
+        r = await client.get("/api/auth/me", cookies={"__Host-access_token": token})
+        assert r.status_code == 401
+
+
+class TestCookieAttributes:
+    async def test_login_cookie_uses_host_prefix_and_secure_flags(
+        self, client: AsyncClient, setup_db
+    ):
+        _, secret = await _add_totp("cookieuser", "TestPassword1!Secure")
+        import pyotp
+        r = await client.post(
+            "/api/auth/login",
+            data={
+                "username": "cookieuser",
+                "password": "TestPassword1!Secure",
+                "totp_code": pyotp.TOTP(secret).now(),
+            },
+        )
+        assert r.status_code == 200, r.text
+        set_cookie = r.headers["set-cookie"]
+        assert set_cookie.startswith("__Host-access_token=")
+        assert "HttpOnly" in set_cookie
+        assert "Secure" in set_cookie
+        assert "SameSite=strict" in set_cookie
+        assert "Path=/" in set_cookie
+        assert "Domain=" not in set_cookie

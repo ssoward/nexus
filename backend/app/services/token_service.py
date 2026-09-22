@@ -24,10 +24,19 @@ def create_access_token(user_id: int, auth_time: float | None = None) -> str:
     return jwt.encode(payload, s.jwt_secret, algorithm=s.jwt_algorithm)
 
 
+# Every token we mint carries these; a token missing any of them was not minted
+# by us (or was minted with a leaked key and crafted to never expire), so refuse
+# it rather than let PyJWT treat the absent claim as "nothing to verify".
+_REQUIRED_CLAIMS = ["exp", "iat", "sub", "jti"]
+
+
 def decode_access_token(token: str) -> Optional[dict]:
     s = get_settings()
     try:
-        payload = jwt.decode(token, s.jwt_secret, algorithms=[s.jwt_algorithm])
+        payload = jwt.decode(
+            token, s.jwt_secret, algorithms=[s.jwt_algorithm],
+            options={"require": _REQUIRED_CLAIMS},
+        )
         if payload.get("type") == "ws":
             return None
         return payload
@@ -56,7 +65,10 @@ def create_ws_token(user_id: int, session_id: str) -> tuple[str, str, datetime]:
 def decode_ws_token(token: str) -> Optional[dict]:
     s = get_settings()
     try:
-        payload = jwt.decode(token, s.jwt_secret, algorithms=[s.jwt_algorithm])
+        payload = jwt.decode(
+            token, s.jwt_secret, algorithms=[s.jwt_algorithm],
+            options={"require": _REQUIRED_CLAIMS + ["session_id"]},
+        )
         if payload.get("type") != "ws":
             return None
         return payload

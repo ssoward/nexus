@@ -80,3 +80,19 @@ def test_decode_access_token_rejects_ws_token():
     ws_token, _, _ = create_ws_token(1, "s")
     payload = decode_access_token(ws_token)
     assert payload is None
+
+
+def test_decode_rejects_token_missing_required_claims():
+    """A token minted without exp/jti (e.g. with a leaked key) must be refused (L7)."""
+    import jwt as pyjwt
+    from datetime import datetime, timezone
+    from app.config import get_settings
+    from app.services.token_service import decode_access_token, decode_ws_token
+
+    s = get_settings()
+    no_exp = pyjwt.encode(
+        {"sub": "1", "iat": datetime.now(timezone.utc), "jti": "x"},
+        s.jwt_secret, algorithm=s.jwt_algorithm,
+    )
+    assert decode_access_token(no_exp) is None
+    assert decode_ws_token(no_exp) is None

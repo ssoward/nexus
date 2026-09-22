@@ -7,9 +7,9 @@ app:
   db_path: ~/.nexus/nexus.db
 
 session:
-  jwt_expire_minutes: 525600  # 365 days — slid forward on every refresh, so sessions only end on explicit logout
-  absolute_max_hours: 0       # 0 = disabled. If > 0, force a fresh login this many hours after the ORIGINAL
-                              # login regardless of refreshes — a hard ceiling on how long a stolen cookie is usable.
+  jwt_expire_minutes: 43200   # 30 days — slid forward on every refresh while the app is in use
+  absolute_max_hours: 720     # Force a fresh login 30 days after the ORIGINAL login regardless of refreshes —
+                              # a hard ceiling on how long a stolen cookie is usable. 0 disables the ceiling.
 
 recovery:
   enabled: true    # serialize session ring buffers on graceful shutdown and replay after restart

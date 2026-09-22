@@ -17,7 +17,7 @@ from pydantic import BaseModel, field_validator
 from app.config import get_settings
 from app.crypto import encrypt_totp_secret, hash_password
 from app.database import db
-from app.dependencies import get_current_user
+from app.dependencies import COOKIE_NAME, get_current_user
 from app.limiter import limiter
 from app.services.auth_service import authenticate_user, NEEDS_TOTP, NEEDS_MFA_SETUP, NEEDS_EMAIL_OTP, NEEDS_PASSKEY, _DUMMY_HASH
 from app.services.token_service import create_access_token, create_ws_token, decode_access_token
@@ -25,7 +25,11 @@ from app.services.token_service import create_access_token, create_ws_token, dec
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-COOKIE_NAME = "access_token"
+
+def _clear_auth_cookie(response: Response) -> None:
+    # A `__Host-` cookie is only cleared if the expiring Set-Cookie carries the
+    # same Secure/Path attributes it was set with.
+    response.delete_cookie(key=COOKIE_NAME, path="/", secure=True, httponly=True, samesite="strict")
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -127,30 +131,33 @@ async def refresh_token(
 
 @router.post("/logout")
 @limiter.limit("10/minute")
-async def logout(
-    request: Request,
-    response: Response,
-    current_user: dict = Depends(get_current_user),
-):
-    # Revoke the JWT so it can't be reused even before expiry (HIGH-3)
-    token = request.cookies.get(COOKIE_NAME)
-    if token:
-        payload = decode_access_token(token)
-        if payload:
-            jti = payload.get("jti")
-            exp = payload.get("exp")
-            if jti and exp:
-                expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
-                await db.execute(
-                    "INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)",
-                    (jti, current_user["id"], expires_at),
-                )
+async def logout(request: Request, response: Response):
+    """Best-effort logout: always clears the cookie, revokes the JWT if it is still valid.
 
-    await db.execute(
-        "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
-        (current_user["id"], "LOGOUT", request.client.host if request.client else None),
-    )
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+    Deliberately does not depend on get_current_user — a user whose token was
+    already revoked/expired/evicted must still be able to clear the cookie
+    instead of bouncing between /login and a 401 forever.
+    """
+    token = request.cookies.get(COOKIE_NAME)
+    payload = decode_access_token(token) if token else None
+    if payload:
+        jti = payload.get("jti")
+        exp = payload.get("exp")
+        sub = payload.get("sub")
+        user_id = int(sub) if sub and str(sub).isdigit() else None
+        if jti and exp:
+            expires_at = datetime.fromtimestamp(exp, tz=timezone.utc).isoformat()
+            await db.execute(
+                "INSERT OR IGNORE INTO revoked_tokens (jti, user_id, expires_at) VALUES (?, ?, ?)",
+                (jti, user_id, expires_at),
+            )
+        if user_id is not None:
+            await db.execute(
+                "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
+                (user_id, "LOGOUT", request.client.host if request.client else None),
+            )
+
+    _clear_auth_cookie(response)
     return {"ok": True}
 
 
@@ -778,5 +785,5 @@ async def delete_account(
         (uid, "ACCOUNT_DELETED", request.client.host if request.client else None),
     )
     await db.execute("DELETE FROM users WHERE id = ?", (uid,))
-    response.delete_cookie(key=COOKIE_NAME, path="/")
+    _clear_auth_cookie(response)
     return {"ok": True}

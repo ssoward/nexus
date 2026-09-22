@@ -31,7 +31,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth/passkey", tags=["passkey"])
 
 CHALLENGE_TTL_SECONDS = 120
-COOKIE_NAME = "access_token"
 
 # Shared persistent-cookie helper — passkey logins get the same long-lived
 # session as password logins (survives browser close, slid on refresh).
@@ -264,13 +263,10 @@ async def authenticate_complete(request: Request, response: Response, req: AuthC
     if not row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if row["lockout_until"]:
-        lockout_until = datetime.fromisoformat(row["lockout_until"])
-        if lockout_until.tzinfo is None:
-            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) < lockout_until:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account locked")
-
+    # No lockout check here, on purpose: lockout exists to slow down guessing of
+    # passwords/OTPs. A passkey assertion is a signature over a fresh challenge —
+    # it cannot be guessed — so honouring the lock would only let a remote
+    # password-guesser keep the real owner from signing in with their own key.
     expected_challenge = await _consume_challenge(row["id"], "authenticate")
     s = get_settings()
 
@@ -294,11 +290,9 @@ async def authenticate_complete(request: Request, response: Response, req: AuthC
             require_user_verification=True,
         )
     except Exception as exc:
+        # Audit only — a failed assertion must not feed the password lockout
+        # counter (junk assertions from anyone would otherwise lock the owner out).
         logger.warning("Passkey authenticate_complete failed for user %s: %s", row["id"], exc)
-        await db.execute(
-            "UPDATE users SET failed_login_count = failed_login_count + 1 WHERE id = ?",
-            (row["id"],),
-        )
         await db.execute(
             "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
             (row["id"], AuditAction.PASSKEY_AUTH_FAILURE.value, request.client.host if request.client else None),
@@ -547,13 +541,8 @@ async def login_complete_passwordless(
     if not user_row:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
 
-    if user_row["lockout_until"]:
-        lockout_until = datetime.fromisoformat(user_row["lockout_until"])
-        if lockout_until.tzinfo is None:
-            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) < lockout_until:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Account locked")
-
+    # No lockout check — see authenticate_complete: a passkey cannot be guessed,
+    # and it is the owner's way back in during a password-guessing storm.
     try:
         cred = _build_authentication_credential(req.credential)
         verified = webauthn.verify_authentication_response(
@@ -567,10 +556,6 @@ async def login_complete_passwordless(
         )
     except Exception as exc:
         logger.warning("Passwordless login failed for user %s: %s", user_row["id"], exc)
-        await db.execute(
-            "UPDATE users SET failed_login_count = failed_login_count + 1 WHERE id = ?",
-            (user_row["id"],),
-        )
         await db.execute(
             "INSERT INTO audit_log (user_id, action, ip_address) VALUES (?, ?, ?)",
             (user_row["id"], AuditAction.PASSKEY_AUTH_FAILURE.value,

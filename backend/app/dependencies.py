@@ -7,7 +7,13 @@ from app.database import db
 from app.services.token_service import decode_access_token
 
 
-async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -> dict:
+# `__Host-` prefix: browsers only accept the cookie when it is Secure, has no
+# Domain attribute and Path=/ — so a subdomain or an http:// origin can never
+# plant or override it. Shared with the routers that set/clear the cookie.
+COOKIE_NAME = "__Host-access_token"
+
+
+async def get_current_user(access_token: Optional[str] = Cookie(default=None, alias=COOKIE_NAME)) -> dict:
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Not authenticated",
@@ -47,8 +53,13 @@ async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -
         if revoked:
             raise credentials_exception
 
+    # Deliberately NOT selecting/enforcing lockout_until here. Lockout protects
+    # guessable secrets at the credential endpoints (password, TOTP, email OTP).
+    # A token that already passed MFA proves nothing about the guesser, and
+    # enforcing the lock on issued tokens let anyone who knew the owner's email
+    # evict the owner's live sessions with five bad passwords (H1).
     row = await db.fetchone(
-        "SELECT id, username, lockout_until, tokens_valid_after FROM users WHERE id = ?",
+        "SELECT id, username, tokens_valid_after FROM users WHERE id = ?",
         (int(user_id),),
     )
     if row is None:
@@ -63,14 +74,6 @@ async def get_current_user(access_token: Optional[str] = Cookie(default=None)) -
         if cutoff.tzinfo is None:
             cutoff = cutoff.replace(tzinfo=timezone.utc)
         if auth_time is None or auth_time < cutoff.timestamp():
-            raise credentials_exception
-
-    # Enforce account lockout on already-issued tokens
-    if row["lockout_until"]:
-        lockout_until = datetime.fromisoformat(row["lockout_until"])
-        if lockout_until.tzinfo is None:
-            lockout_until = lockout_until.replace(tzinfo=timezone.utc)
-        if datetime.now(timezone.utc) < lockout_until:
             raise credentials_exception
 
     return row

@@ -27,7 +27,7 @@ import urllib.error
 def _req(url: str, cookie: str, data: dict | None = None) -> dict:
     """Make an authenticated request."""
     headers = {
-        "Cookie": f"access_token={cookie}",
+        "Cookie": f"__Host-access_token={cookie}",
         "Content-Type": "application/json",
     }
     body = json.dumps(data).encode() if data else None

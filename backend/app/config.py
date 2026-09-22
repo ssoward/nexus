@@ -47,7 +47,7 @@ class Settings(BaseSettings):
 
     # JWT settings
     jwt_algorithm: str = "HS256"
-    jwt_expire_minutes: int = 525600  # 365 days; refresh slides it, logout ends it
+    jwt_expire_minutes: int = 43200  # 30 days; refresh slides it, logout ends it
     ws_token_expire_seconds: int = 60
 
     # App settings (can be overridden by config.yml)
@@ -56,11 +56,11 @@ class Settings(BaseSettings):
     log_format: str = "text"  # "text" or "json"
     max_panes: int = 6
     session_idle_timeout_seconds: int = 0  # 0 = disabled; sessions run until manually closed or process exits
-    # Absolute re-authentication ceiling. 0 = disabled (default: a session lives
-    # until explicit logout, sliding forever on /refresh). When > 0, any token
-    # whose original auth_time is older than this many hours is rejected, forcing
+    # Absolute re-authentication ceiling, measured from the ORIGINAL login
+    # (auth_time survives /refresh). Any token older than this is rejected, forcing
     # a fresh login — a hard cap on how long a stolen cookie stays usable.
-    session_absolute_max_hours: int = 0
+    # Default 30 days; 0 disables the ceiling (sessions then slide forever).
+    session_absolute_max_hours: int = 720
 
     # TLS auto-renewal
     tls_domain: str = ""

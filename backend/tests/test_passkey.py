@@ -83,9 +83,19 @@ class TestAuthenticateComplete:
         )
         assert r.status_code == 401
 
-    async def test_locked_account_401(self, client: AsyncClient, setup_db, test_user):
+    async def test_locked_account_is_not_blocked_from_passkey_auth(
+        self, client: AsyncClient, setup_db, test_user
+    ):
+        """Password lockout must not gate passkey assertions (H1).
+
+        A passkey cannot be brute-forced, and it is the owner's way back in while
+        someone is hammering the password endpoint. With the lock set, the request
+        must proceed to challenge handling (400: no pending challenge) rather than
+        being refused up front (401: account locked).
+        """
         await setup_db.execute(
-            "UPDATE users SET lockout_until = datetime('now', '+15 minutes') WHERE id = ?",
+            "UPDATE users SET failed_login_count = 5, lockout_until = datetime('now', '+15 minutes') "
+            "WHERE id = ?",
             (test_user["id"],),
         )
         await _seed_passkey(setup_db, test_user["id"])
@@ -93,7 +103,39 @@ class TestAuthenticateComplete:
             "/api/auth/passkey/authenticate/complete",
             json={"username": test_user["username"], "credential": {"id": "x"}},
         )
-        assert r.status_code == 401
+        assert r.status_code == 400
+        assert "challenge" in r.json()["detail"].lower()
+
+    async def test_failed_assertion_does_not_feed_password_lockout(
+        self, client: AsyncClient, setup_db, test_user
+    ):
+        """Junk assertions are audited but never increment failed_login_count."""
+        from webauthn.helpers import bytes_to_base64url
+        await _seed_passkey(setup_db, test_user["id"])
+        await client.post(
+            "/api/auth/passkey/authenticate/begin", json={"username": test_user["username"]}
+        )
+        r = await client.post(
+            "/api/auth/passkey/authenticate/complete",
+            json={
+                "username": test_user["username"],
+                "credential": {
+                    "id": bytes_to_base64url(b"cred-abc"),
+                    "rawId": bytes_to_base64url(b"cred-abc"),
+                    "response": {
+                        "clientDataJSON": bytes_to_base64url(b"{}"),
+                        "authenticatorData": bytes_to_base64url(b"x"),
+                        "signature": bytes_to_base64url(b"x"),
+                    },
+                },
+            },
+        )
+        assert r.status_code == 400
+        row = await setup_db.fetchone(
+            "SELECT failed_login_count, lockout_until FROM users WHERE id = ?", (test_user["id"],)
+        )
+        assert row["failed_login_count"] == 0
+        assert row["lockout_until"] is None
 
 
 class TestPasswordlessComplete:

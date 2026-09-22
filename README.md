@@ -51,7 +51,7 @@ Typical uses:
 - **Flexible MFA switching** — switch between TOTP, email code, or passkey from the login verification screen without re-registering
 - **Account recovery** — "Lost access to authenticator?" emails a single-use reset link (15-min TTL)
 - **Strong password enforcement** — 16+ chars, upper/lower/digit/special required
-- **Account lockout** — 5 failed attempts → 15-minute lockout
+- **Account lockout** — 5 failed password/OTP attempts → 15-minute lockout of the credential endpoints; already-signed-in devices and passkey sign-in are unaffected, so a remote guesser cannot lock the owner out
 - **JWT revocation** — logout, password change, and email change immediately invalidate the current token
 - **Rate limiting** — every sensitive endpoint protected via slowapi (see Security section for full table)
 - **Secure by default** — httpOnly/Secure/SameSite=Strict cookies; strict CSP; HSTS with preload; WebAuthn UV enforced; no Swagger/ReDoc in production
@@ -63,7 +63,7 @@ Typical uses:
 - **Readable on small screens** — the A− / A+ zoom in the header scales chrome and terminal text together (persisted per device), so a phone-sized viewport can be dialled up without browser pinch-zoom breaking the layout
 - **Correct column count** — xterm waits for custom fonts (`document.fonts.ready`) before measuring character width, so the PTY always gets the right column count
 - **Swipe to switch sessions** — horizontal swipe gesture on mobile switches between sessions
-- **Persistent sessions** — the auth cookie survives app/browser restarts and is slid forward on every refresh (365-day TTL, no absolute ceiling by default), so a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric. Set `session.absolute_max_hours` in `config.yml` to impose a hard re-authentication ceiling (measured from the original login, unaffected by refreshes) if you want to cap the lifetime of a stolen cookie
+- **Persistent sessions** — the `__Host-access_token` cookie survives app/browser restarts and is slid forward on every refresh (30-day TTL), so day to day a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric. A hard re-authentication ceiling of 30 days from the *original* login (`session.absolute_max_hours: 720`, unaffected by refreshes) caps how long a stolen cookie stays usable; set it to `0` to disable
 
 ### Orchestration & Automation
 - **Orchestrator panel** — sidebar tab showing real-time state (WORKING / WAITING / ASKING / BUSY) for every session; batch-send to all WAITING sessions at once; voice-to-text input
@@ -497,9 +497,9 @@ app:
 
 session:
   idle_timeout_seconds: 86400
-  jwt_expire_minutes: 525600    # 365 days — refresh slides it forward; sessions end only on explicit logout
-  absolute_max_hours: 0         # 0 = disabled. If > 0, force re-login this many hours after the ORIGINAL login,
-                                # regardless of refreshes — a hard cap on how long a stolen cookie stays usable
+  jwt_expire_minutes: 43200     # 30 days — refresh slides it forward while the app is in use
+  absolute_max_hours: 720       # force re-login 30 days after the ORIGINAL login, regardless of refreshes —
+                                # a hard cap on how long a stolen cookie stays usable. 0 disables the ceiling
 
 recovery:
   enabled: true                 # serialize ring buffers on graceful shutdown; replay after restart
@@ -661,7 +661,7 @@ All API routes are under `/api/`.
 Zero-dependency Python CLI for programmatic session control. Wraps the `/api/orchestration/*` endpoints.
 
 ```bash
-python3 wctl.py --url https://your-host.ts.net --cookie <access_token> <subcommand>
+python3 wctl.py --url https://your-host.ts.net --cookie <value of the __Host-access_token cookie> <subcommand>
 ```
 
 | Command | Description |
@@ -800,7 +800,7 @@ cd backend && DB_PATH=~/.nexus/nexus.db alembic upgrade head
 
 ### Can't log in
 
-**"Account locked"** — 5 failed attempts trigger a 15-minute lockout. Wait and try again.
+**"Account locked"** — 5 failed password/OTP attempts trigger a 15-minute lockout of password sign-in. Wait and try again, or sign in with a passkey (passkey sign-in and already-signed-in devices are not affected by the lock).
 
 **"TOTP code invalid"** — Check your device clock is synced (`date` on the server vs. your phone). TOTP requires clocks within ~30 seconds.
 
@@ -920,7 +920,7 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | TOTP encryption | AES-256-GCM; key via PBKDF2-HMAC-SHA256 (600,000 rounds); nonce + AAD per record |
 | Timing attacks | Unknown usernames always run bcrypt; `hmac.compare_digest` on verify result |
 | Rate limiting | slowapi: 10 login/min, 5/min TOTP setup and registration, 30/min refresh, 3/hour recovery |
-| Account lockout | 5 failures → 15-minute lockout in DB; enforced at every authenticated request |
+| Account lockout | 5 failed password/TOTP/email-OTP attempts → 15-minute lockout of the credential endpoints (`/login`, `/setup-mfa`, `/switch-mfa`, `/resend-otp`, `/bootstrap-totp`). Deliberately **not** enforced on already-issued tokens or on passkey assertions: a passkey cannot be guessed, and enforcing the lock there let anyone who knew the owner's email evict the owner's live sessions with five bad passwords |
 | JWT revocation | Logout inserts JTI into `revoked_tokens`; password change, email change, and MFA recovery stamp `users.tokens_valid_after`, rejecting **every** token issued earlier (evicts sessions on other devices, not just the current cookie) |
 | MFA integrity | Switching to an MFA method never provisions a *new* factor from a password-only request — `/switch-mfa` only selects among already-enrolled factors, and `/bootstrap-totp` refuses once any MFA is configured, so knowing the password alone can't downgrade a passkey/email-OTP account |
 | Secret isolation | Spawned PTY sessions run with `APP_SECRET`/`JWT_SECRET`/`CRYPTO_SALT`/`SMTP_PASSWORD` stripped from their environment. **Sessions still run as the Nexus OS user**, so they can read any file that user can — keep `.env` and `~/.nexus/nexus.db` at mode `0600` (the backend warns at startup if they are not). The security boundary is authentication, not process isolation |
@@ -931,13 +931,14 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 | Security headers | CSP, HSTS with `preload`, X-Frame-Options, X-Content-Type-Options, Referrer-Policy |
 | Passkey | `userVerification=REQUIRED`; sign count validated (clone detection); `rp_id` never derived from request headers |
 | CORS | `allow_origins=[]` — no cross-origin requests permitted |
-| Absolute session timeout | `auth_time` claim (set at login, preserved across `/refresh`) is compared against `session.absolute_max_hours` in `get_current_user`. **Default is 0 = disabled** — a cookie lives until logout or credential change. Set `absolute_max_hours` in `config.yml` to cap how long a stolen cookie stays usable |
+| Absolute session timeout | `auth_time` claim (set at login, preserved across `/refresh`) is compared against `session.absolute_max_hours` in `get_current_user`. **Default 720 h (30 days)** from the original login, regardless of refreshes; the JWT/cookie TTL is 30 days and slides on refresh. Set `absolute_max_hours: 0` to disable the ceiling |
+| Cookie hardening | `__Host-access_token`: the `__Host-` prefix makes browsers refuse the cookie unless it is `Secure`, has no `Domain` and `Path=/`, so no subdomain or `http://` origin can plant or override it. JWTs must carry `exp`, `iat`, `sub`, `jti` (and `session_id` for WS tokens) or they are rejected outright. `/logout` always clears the cookie, even when the token is already dead |
 
 ### Threat model
 
 | Threat | Mitigation |
 |--------|-----------|
-| Stolen cookie | httpOnly + Secure + SameSite=Strict; revocation on logout; `tokens_valid_after` eviction on password/email change or recovery. The JWT TTL is long (365 d, slid on refresh) unless `session.absolute_max_hours` is set — see Hardening summary |
+| Stolen cookie | httpOnly + Secure + SameSite=Strict + `__Host-` prefix; revocation on logout; `tokens_valid_after` eviction on password/email change or recovery; 30-day absolute ceiling from the original login (`session.absolute_max_hours`) |
 | Brute force | Rate limiting + account lockout |
 | TOTP replay | Codes recorded with timestamp; reuse within 90 s rejected |
 | JWT forgery | HS256 with ≥ 32-byte secret; PyJWT validates `exp`, `iat` |
@@ -1030,7 +1031,7 @@ nexus/
 │   │   ├── config.py          # Pydantic settings (YAML + env)
 │   │   ├── crypto.py          # bcrypt, AES-GCM, PBKDF2
 │   │   ├── database.py        # aiosqlite wrapper
-│   │   ├── dependencies.py    # get_current_user (JWT + revocation + lockout)
+│   │   ├── dependencies.py    # get_current_user (JWT + revocation + absolute ceiling); COOKIE_NAME
 │   │   ├── routers/
 │   │   │   ├── auth.py        # Login, MFA setup/switch, TOTP, email OTP, recovery
 │   │   │   ├── passkey.py     # WebAuthn/FIDO2 registration and authentication

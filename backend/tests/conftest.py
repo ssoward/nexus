@@ -213,6 +213,6 @@ async def auth_client(setup_db, test_user):
     async with AsyncClient(
         transport=ASGITransport(app=_make_app()),
         base_url="http://test",
-        cookies={"access_token": token},
+        cookies={"__Host-access_token": token},
     ) as ac:
         yield ac, test_user
