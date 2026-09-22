@@ -911,6 +911,8 @@ Managed by Alembic (9 migrations in `backend/alembic/versions/`).
 
 ## Security
 
+See also [`SECURITY.md`](SECURITY.md) for the threat model, operator responsibilities and how to report a vulnerability. CI runs `pip-audit`, `npm audit` and `bandit` on every push.
+
 ### Authentication flow
 
 1. Register with email + password via `/api/auth/create-user`

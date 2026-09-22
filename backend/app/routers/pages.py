@@ -54,7 +54,9 @@ async def update_page(
 
     if updates:
         params.append(page_id)
-        await db.execute(f"UPDATE pages SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        # `updates` holds only the fixed fragments above ("name = ?", …); every
+        # user value is bound via `params`, so no untrusted text enters the SQL.
+        await db.execute(f"UPDATE pages SET {', '.join(updates)} WHERE id = ?", tuple(params))  # nosec B608
 
     row = await db.fetchone("SELECT * FROM pages WHERE id = ?", (page_id,))
     return row

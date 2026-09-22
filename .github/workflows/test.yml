@@ -32,6 +32,11 @@ jobs:
           pip install pip-audit
           pip-audit -r requirements.txt --progress-spinner off
 
+      - name: Static security scan (bandit, medium severity/confidence and up)
+        run: |
+          pip install bandit
+          bandit -r app -ll -ii -q
+
   frontend:
     name: Frontend (vitest + typecheck)
     runs-on: ubuntu-latest

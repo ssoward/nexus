@@ -54,7 +54,9 @@ async def update_workspace(
 
     if updates:
         params.append(workspace_id)
-        await db.execute(f"UPDATE workspaces SET {', '.join(updates)} WHERE id = ?", tuple(params))
+        # `updates` holds only the fixed fragments above ("name = ?", …); every
+        # user value is bound via `params`, so no untrusted text enters the SQL.
+        await db.execute(f"UPDATE workspaces SET {', '.join(updates)} WHERE id = ?", tuple(params))  # nosec B608
 
     row = await db.fetchone("SELECT * FROM workspaces WHERE id = ?", (workspace_id,))
     return row
