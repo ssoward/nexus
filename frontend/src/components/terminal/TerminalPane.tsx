@@ -8,6 +8,7 @@ import { useTerminalSocket } from '@/hooks/useTerminalSocket'
 import { useVisibilityReconnect } from '@/hooks/useVisibilityReconnect'
 import { useInactivityDetector } from '@/hooks/useInactivityDetector'
 import { useKeyboardGuard } from '@/hooks/useKeyboardGuard'
+import { useTouchScroll } from '@/hooks/useTouchScroll'
 import { MobileKeyboardShim } from './MobileKeyboardShim'
 import { MobileKeybar } from './MobileKeybar'
 import type { Session } from '@/types/session'
@@ -160,6 +161,9 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       return () => clearTimeout(t)
     }
   }, [isActive, terminal, isMobile, showSoftKeyboard, sendResize])
+
+  // Drag to scroll back through output — xterm's native touch scroll does nothing in full-screen TUIs.
+  useTouchScroll(containerRef, terminal, isMobile)
 
   // Soft-keyboard handling: useVisualViewportHeight (TerminalPage) shrinks the
   // root layout to the visible area, so the container's CSS size changes and

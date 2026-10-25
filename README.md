@@ -66,6 +66,7 @@ Typical uses:
 - **Readable on small screens** — the A− / A+ zoom in the header scales chrome and terminal text together (persisted per device), so a phone-sized viewport can be dialled up without browser pinch-zoom breaking the layout
 - **Correct column count** — xterm waits for custom fonts (`document.fonts.ready`) before measuring character width, so the PTY always gets the right column count
 - **Swipe to switch sessions** — horizontal swipe gesture on mobile switches between sessions
+- **Drag to scroll output** — a vertical one-finger drag (with momentum) scrolls back through terminal history. In full-screen TUIs that use the alternate screen (Claude Code, `less`, `vim`), where xterm.js's native touch scrolling does nothing, the drag is sent as mouse-wheel reports (or arrow keys if the app has not enabled mouse tracking) so the app scrolls its own view. Taps still raise the keyboard and horizontal swipes still switch sessions
 - **Persistent sessions** — the `__Host-access_token` cookie survives app/browser restarts and is slid forward on every refresh (30-day TTL), so day to day a session only ends on explicit logout or a credential change (password/email/MFA recovery); applies to every login method, including passkey/biometric. A hard re-authentication ceiling of 30 days from the *original* login (`session.absolute_max_hours: 720`, unaffected by refreshes) caps how long a stolen cookie stays usable; set it to `0` to disable
 
 ### Orchestration & Automation
