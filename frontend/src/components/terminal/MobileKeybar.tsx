@@ -33,6 +33,7 @@ const KEYS: KeyDef[] = [
 interface Props {
   isVisible: boolean
   sendInput: (data: string) => void
+  onPaste: (text: string) => void
 }
 
 /**
@@ -40,7 +41,7 @@ interface Props {
  * physical keyboard.  Uses onPointerDown + e.preventDefault() so the button
  * never steals focus away from the hidden keyboard-guard input.
  */
-export function MobileKeybar({ isVisible, sendInput }: Props) {
+export function MobileKeybar({ isVisible, sendInput, onPaste }: Props) {
   // Voice transcripts go through sendInput to avoid bracketedPaste fragmentation
   const handleTranscript = useCallback(
     (text: string) => { if (text) sendInput(text) },
@@ -60,7 +61,7 @@ export function MobileKeybar({ isVisible, sendInput }: Props) {
     e.preventDefault()
     try {
       const text = await navigator.clipboard.readText()
-      if (text) sendInput(text)
+      if (text) onPaste(text)
       else toast.warning('Clipboard is empty')
     } catch {
       toast.warning('Clipboard access denied — use long-press paste instead')

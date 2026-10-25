@@ -10,14 +10,15 @@ function makeTerminal() {
 }
 
 function setup(terminalOverride?: Terminal | null) {
-  const inputEl = document.createElement('input')
+  const inputEl = document.createElement('textarea')
   document.body.appendChild(inputEl)
-  const inputRef = createRef<HTMLInputElement>()
+  const inputRef = createRef<HTMLTextAreaElement>()
   // @ts-expect-error — assigning to readonly ref for test
   inputRef.current = inputEl
 
   const terminal = terminalOverride !== undefined ? terminalOverride : makeTerminal()
   const sendInput = vi.fn()
+  const onPaste = vi.fn()
 
   render(
     <MobileKeyboardShim
@@ -25,10 +26,11 @@ function setup(terminalOverride?: Terminal | null) {
       inputRef={inputRef}
       isActive={true}
       sendInput={sendInput}
+      onPaste={onPaste}
     />
   )
 
-  return { inputEl, terminal, sendInput }
+  return { inputEl, terminal, sendInput, onPaste }
 }
 
 describe('MobileKeyboardShim', () => {
@@ -75,14 +77,22 @@ describe('MobileKeyboardShim', () => {
     expect(sendInput).toHaveBeenCalledWith('a')
   })
 
-  // ── Actual paste bypasses terminal.paste to avoid bracketedPaste fragmentation ─
-  it('routes insertFromPaste events through sendInput, bypassing terminal.paste', () => {
-    const { inputEl, terminal, sendInput } = setup()
-    Object.defineProperty(inputEl, 'value', { value: 'pasted text', configurable: true, writable: true })
+  // ── Paste goes through the shared paste path (bracketing, size check) ─────
+  it('routes insertFromPaste events to onPaste with the full multi-line value', () => {
+    const { inputEl, terminal, sendInput, onPaste } = setup()
+    Object.defineProperty(inputEl, 'value', { value: 'line one\nline two', configurable: true, writable: true })
     const evt = new InputEvent('input', { inputType: 'insertFromPaste', bubbles: true })
     inputEl.dispatchEvent(evt)
-    expect(sendInput).toHaveBeenCalledWith('pasted text')
+    expect(onPaste).toHaveBeenCalledWith('line one\nline two')
+    expect(sendInput).not.toHaveBeenCalled()
     expect((terminal as ReturnType<typeof makeTerminal>).paste).not.toHaveBeenCalled()
+  })
+
+  it('sends \\r for Enter reported only as an insertLineBreak input event (Android)', () => {
+    const { inputEl, sendInput } = setup()
+    inputEl.dispatchEvent(new InputEvent('input', { inputType: 'insertLineBreak', bubbles: true }))
+    expect(sendInput).toHaveBeenCalledWith('\r')
+    expect(inputEl.value).toBe('')
   })
 
   // ── Null terminal — no crash ───────────────────────────────────────────────

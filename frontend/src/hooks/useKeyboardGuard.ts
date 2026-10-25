@@ -2,12 +2,14 @@ import { useCallback, useEffect, useRef } from 'react'
 
 export function useKeyboardGuard() {
   const isMobile = typeof navigator !== 'undefined' && navigator.maxTouchPoints > 1
-  const hiddenInputRef = useRef<HTMLInputElement | null>(null)
+  const hiddenInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     if (!isMobile) return
-    const input = document.createElement('input')
-    input.type = 'text'
+    // A textarea, not an <input>: a single-line input strips the newlines out
+    // of a multi-line long-press paste before we ever see it.
+    const input = document.createElement('textarea')
+    input.rows = 1
     input.inputMode = 'text'
     input.autocomplete = 'off'
     input.setAttribute('autocorrect', 'off')

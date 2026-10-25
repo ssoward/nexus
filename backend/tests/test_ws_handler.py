@@ -5,6 +5,7 @@ aiosqlite connection), we drive the real handler coroutine directly with a fake
 WebSocket on the test's own event loop, backed by the real async DB. This covers
 the handshake auth gates plus the live reader/writer/ping loop end-to-end.
 """
+import json
 import asyncio
 import uuid
 
@@ -151,6 +152,39 @@ class TestLiveLoop:
         assert writes and writes[0][1] == b"ls\n"
         assert resizes and resizes[0] == (100, 30)
         assert any('"pong"' in s for s in wsk.sent)
+
+    async def _run_inputs(self, setup_db, test_user, monkeypatch, frames):
+        await _insert_session(setup_db, test_user["id"])
+        token = await _issue_token(setup_db, test_user["id"])
+        writes = []
+        monkeypatch.setattr(ws_module.pty_service, "get_fd", lambda sid: 7)
+        monkeypatch.setattr(ws_module.pty_service, "write_all", lambda fd, data: writes.append(data))
+        monkeypatch.setattr(ws_module.pty_broadcaster, "subscribe", lambda sid: asyncio.Queue())
+        monkeypatch.setattr(ws_module.pty_broadcaster, "unsubscribe", lambda sid, q: None)
+        monkeypatch.setattr(ws_module.pty_broadcaster, "get_raw_buffer", lambda sid: b"")
+        wsk = FakeWebSocket(headers=_proto_headers(token), inbound=[json.dumps(f) for f in frames])
+        await asyncio.wait_for(terminal_ws(wsk, VALID_SID), timeout=5)
+        return writes, wsk
+
+    async def test_large_bracketed_paste_after_typing_reaches_pty_in_one_write(self, setup_db, test_user, monkeypatch):
+        # Regression: a >1000-char paste right after a keystroke was silently dropped.
+        body = "\r".join(f"line {i} " + "x" * 60 for i in range(800))  # ~56 KB, multi-line
+        paste = "\x1b[200~" + body + "\x1b[201~"
+        writes, wsk = await self._run_inputs(setup_db, test_user, monkeypatch, [
+            {"type": "input", "data": "a"},
+            {"type": "input", "data": paste},
+        ])
+        assert writes == [b"a", paste.encode()]
+        assert not any('"error"' in s for s in wsk.sent)
+
+    async def test_oversized_input_is_reported_not_silently_dropped(self, setup_db, test_user, monkeypatch):
+        from app.services.rate_limiter import MAX_INPUT_CHARS
+        writes, wsk = await self._run_inputs(setup_db, test_user, monkeypatch, [
+            {"type": "input", "data": "x" * (MAX_INPUT_CHARS + 1)},
+        ])
+        assert writes == []
+        errors = [json.loads(s) for s in wsk.sent if '"error"' in s]
+        assert errors and "not sent" in errors[0]["message"]
 
     async def test_alt_screen_replay_repaints_instead_of_raw_dump(self, setup_db, test_user, monkeypatch):
         """In alt-screen mode, replay must NOT dump the raw ring buffer (which would

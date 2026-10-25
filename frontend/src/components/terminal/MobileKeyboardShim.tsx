@@ -3,37 +3,36 @@ import type { Terminal } from '@xterm/xterm'
 
 interface Props {
   terminal: Terminal | null
-  inputRef: RefObject<HTMLInputElement | null>
+  inputRef: RefObject<HTMLTextAreaElement | null>
   isActive: boolean
   sendInput: (data: string) => void
+  onPaste: (text: string) => void
 }
 
 /**
- * Forwards events from a hidden <input> (which triggers the OS soft keyboard)
- * to the xterm.js Terminal instance.
+ * Forwards events from a hidden <textarea> (which triggers the OS soft
+ * keyboard) to the PTY.
  *
- * ALL paths use sendInput() directly to bypass bracketedPaste wrapping.
- * When Claude Code enables bracketedPasteMode, terminal.paste() fires three
- * separate onData events (\x1b[200~, text, \x1b[201~), producing three
- * WebSocket frames and three PTY writes. Claude Code may not reassemble them
- * correctly. sendInput() delivers content as one atomic PTY write.
+ * Typed characters and special keys go straight to sendInput(). Pastes go
+ * through onPaste (pasteToTerminal), which bracket-wraps them when the app
+ * enabled bracketed paste so a multi-line paste is not submitted line by line.
  */
-export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput }: Props) {
+export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput, onPaste }: Props) {
   useEffect(() => {
     const input = inputRef.current
     if (!input || !terminal) return
 
     const onInput = (evt: Event) => {
       const e = evt as InputEvent
-      const inputEl = evt.target as HTMLInputElement
+      const inputEl = evt.target as HTMLTextAreaElement
       if (e.inputType === 'insertFromPaste') {
         // e.data can be null on iOS Safari for paste — read full value instead.
-        // Use sendInput (not terminal.paste) to deliver as one atomic PTY write,
-        // bypassing bracketedPaste fragmentation.
-        const text = inputEl.value
-        if (text) sendInput(text)
+        onPaste(inputEl.value)
+      } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+        // Android keyboards often report Enter only as an input event
+        // (keydown key "Unidentified"), which in a textarea inserts a newline.
+        sendInput('\r')
       } else if (e.data) {
-        // Regular typed characters — send directly to bypass paste wrapping
         sendInput(e.data)
       }
       // Clear so repeated chars and subsequent pastes work
@@ -42,7 +41,6 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput }: 
 
     const onKeydown = (evt: KeyboardEvent) => {
       // Forward special keys that InputEvent doesn't capture.
-      // Use sendInput (not terminal.paste) to avoid bracketedPaste wrapping.
       const specialKeys: Record<string, string> = {
         Enter: '\r',
         Backspace: '\x7f',
@@ -72,7 +70,7 @@ export function MobileKeyboardShim({ terminal, inputRef, isActive, sendInput }: 
       input.removeEventListener('input', onInput)
       input.removeEventListener('keydown', onKeydown)
     }
-  }, [terminal, inputRef, isActive, sendInput])
+  }, [terminal, inputRef, isActive, sendInput, onPaste])
 
   return null
 }

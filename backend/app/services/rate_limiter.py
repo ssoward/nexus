@@ -2,7 +2,15 @@ import asyncio
 import time
 from typing import Dict, Tuple
 
-MAX_CHARS_PER_SECOND = 1000
+# One input frame. A paste (a log, a diff, a long prompt) arrives as a single
+# frame, so this is the paste size limit; the frontend checks the same number
+# (MAX_PASTE_CHARS in frontend/src/components/terminal/paste.ts) and warns
+# instead of sending.
+MAX_INPUT_CHARS = 256_000
+# Per-session budget per one-second window. Was 1000, which silently dropped
+# any paste over ~1 KB that followed a keystroke within the same second; this
+# only needs to stop a runaway client, not shape human input.
+MAX_CHARS_PER_SECOND = 2 * MAX_INPUT_CHARS
 
 
 class InputRateLimiter:
@@ -12,7 +20,7 @@ class InputRateLimiter:
 
     async def allow(self, session_id: str, char_count: int) -> bool:
         """Returns True if the input is allowed, False if it should be dropped."""
-        if char_count <= 0 or char_count > 10_000:
+        if char_count <= 0 or char_count > MAX_INPUT_CHARS:
             return False
         async with self._lock:
             now = time.monotonic()

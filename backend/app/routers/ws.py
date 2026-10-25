@@ -228,6 +228,12 @@ async def terminal_ws(websocket: WebSocket, session_id: str):
                     if not data:
                         continue
                     if not await rate_limiter.allow(session_id, len(data)):
+                        # Never drop input silently — the user sees nothing
+                        # happen and assumes paste is broken.
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": f"Input of {len(data):,} chars was not sent (too large or too fast)",
+                        }))
                         continue
                     encoded = data.encode()
                     await loop.run_in_executor(None, pty_service.write_all, master_fd, encoded)

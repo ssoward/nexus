@@ -9,8 +9,10 @@ import { useVisibilityReconnect } from '@/hooks/useVisibilityReconnect'
 import { useInactivityDetector } from '@/hooks/useInactivityDetector'
 import { useKeyboardGuard } from '@/hooks/useKeyboardGuard'
 import { useTouchScroll } from '@/hooks/useTouchScroll'
+import { usePasteCapture } from '@/hooks/usePasteCapture'
 import { MobileKeyboardShim } from './MobileKeyboardShim'
 import { MobileKeybar } from './MobileKeybar'
+import { pasteToTerminal } from './paste'
 import type { Session } from '@/types/session'
 import { useDisplayStore } from '@/store/displayStore'
 import { clsx } from 'clsx'
@@ -55,13 +57,6 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       },
       scrollback: 5000,
       allowProposedApi: true,
-      // When Claude Code enables bracketedPasteMode, terminal.paste() would
-      // fire THREE separate onData events (\x1b[200~, text, \x1b[201~), each
-      // becoming a separate WebSocket frame and PTY write. Claude Code's input
-      // parser may not reassemble them correctly across separate reads.
-      // ignoreBracketedPasteMode bypasses the wrapping for desktop paste
-      // (Ctrl-V / Cmd-V), sending content as one atomic write instead.
-      ignoreBracketedPasteMode: true,
     })
 
     const fitAddon = new FitAddon()
@@ -122,6 +117,13 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
     })
     return () => disposable.dispose()
   }, [terminal, sendInput])
+
+  const paste = useCallback(
+    (text: string) => { pasteToTerminal(terminal, sendInput, text) },
+    [terminal, sendInput],
+  )
+
+  usePasteCapture(containerRef, paste)
 
   // Font-size changes alter the glyph cell, so the column/row count changes
   // even though the container size didn't — refit and re-report explicitly.
@@ -201,7 +203,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
       </div>
 
       {/* Mobile shortcut key strip — only rendered on touch devices for the active pane */}
-      <MobileKeybar isVisible={isMobile && isActive} sendInput={sendInput} />
+      <MobileKeybar isVisible={isMobile && isActive} sendInput={sendInput} onPaste={paste} />
 
       {/* Terminal area */}
       <div ref={containerRef} className="flex-1 min-h-0" />
@@ -226,6 +228,7 @@ export function TerminalPane({ session, isActive, onClick }: Props) {
         inputRef={hiddenInputRef}
         isActive={isActive}
         sendInput={sendInput}
+        onPaste={paste}
       />
     </div>
   )
