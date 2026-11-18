@@ -53,3 +53,4 @@ coverage/
 
 # Claude Code session handoffs (local, per-machine)
 .claude/sessions/
+.claude/settings.local.json
