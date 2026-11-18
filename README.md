@@ -975,6 +975,7 @@ See also [`SECURITY.md`](SECURITY.md) for the threat model, operator responsibil
 
 - [ ] Generate unique `APP_SECRET`, `JWT_SECRET`, `CRYPTO_SALT` — never reuse across installs
 - [ ] Confirm `.env` is in `.gitignore` and never committed; `chmod 600 .env` (session shells run as the same user)
+- [ ] Keep machine-local Claude Code files out of git: `.claude/settings.local.json` (per-machine permissions) and `.claude/sessions/` (session handoffs) are gitignored — shared `.claude/settings.json` and `.claude/commands/` stay tracked
 - [ ] Access via Tailscale only: keep `CADDY_BIND=127.0.0.1` + `tailscale serve`, confirm `tailscale funnel` is off, and verify the TLS port is unreachable from the LAN
 - [ ] Set `NEXUS_HOST`, `RP_ID`, `WEBAUTHN_ORIGIN` in `.env` (never in tracked files); optionally `NEXUS_SETUP_TOKEN` until the owner account exists
 - [ ] Provision TLS cert and configure Caddy for HTTPS
