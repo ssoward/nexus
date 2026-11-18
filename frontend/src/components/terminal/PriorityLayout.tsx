@@ -9,7 +9,7 @@ interface Props {
 }
 
 export function PriorityLayout({ sessions, isMobile }: Props) {
-  const { primarySessionId, setPrimarySession, activePaneIndex, setActivePane } = useSessionStore()
+  const { primarySessionId, setPrimarySession, activeSessionId, setActiveSession } = useSessionStore()
 
   // Auto-select first session as primary if none set
   useEffect(() => {
@@ -32,13 +32,11 @@ export function PriorityLayout({ sessions, isMobile }: Props) {
 
   const primary = sessions.find((s) => s.id === primarySessionId) ?? sessions[0]
   const thumbnails = sessions.filter((s) => s.id !== primary.id)
-  const primaryIdx = sessions.findIndex((s) => s.id === primary.id)
+  // No (attached) active shell yet → the primary pane takes focus.
+  const activeId = sessions.some((s) => s.id === activeSessionId) ? activeSessionId : primary.id
 
-  const handleThumbnailClick = (id: string) => {
-    setPrimarySession(id)
-    const idx = sessions.findIndex((s) => s.id === id)
-    if (idx >= 0) setActivePane(idx)
-  }
+  // setActiveSession also promotes to primary while in priority layout.
+  const handleThumbnailClick = (id: string) => setActiveSession(id)
 
   if (sessions.length === 1) {
     return (
@@ -46,7 +44,7 @@ export function PriorityLayout({ sessions, isMobile }: Props) {
         <TerminalPane
           session={primary}
           isActive={true}
-          onClick={() => setActivePane(0)}
+          onClick={() => setActiveSession(primary.id)}
         />
       </div>
     )
@@ -59,13 +57,12 @@ export function PriorityLayout({ sessions, isMobile }: Props) {
         <div className="flex-[4] min-h-0 p-1">
           <TerminalPane
             session={primary}
-            isActive={primaryIdx === activePaneIndex}
-            onClick={() => setActivePane(primaryIdx)}
+            isActive={primary.id === activeId}
+            onClick={() => setActiveSession(primary.id)}
           />
         </div>
         <div className="flex-[1] flex flex-row gap-1 p-1 overflow-x-auto min-h-[80px]">
           {thumbnails.map((s) => {
-            const idx = sessions.findIndex((x) => x.id === s.id)
             return (
               <div
                 key={s.id}
@@ -74,7 +71,7 @@ export function PriorityLayout({ sessions, isMobile }: Props) {
               >
                 <TerminalPane
                   session={s}
-                  isActive={idx === activePaneIndex}
+                  isActive={s.id === activeId}
                   onClick={() => handleThumbnailClick(s.id)}
                 />
               </div>
@@ -91,13 +88,12 @@ export function PriorityLayout({ sessions, isMobile }: Props) {
       <div className="flex-[4] min-w-0">
         <TerminalPane
           session={primary}
-          isActive={primaryIdx === activePaneIndex}
-          onClick={() => setActivePane(primaryIdx)}
+          isActive={primary.id === activeId}
+          onClick={() => setActiveSession(primary.id)}
         />
       </div>
       <div className="flex-[1] flex flex-col gap-1 overflow-y-auto min-w-[160px]">
         {thumbnails.map((s) => {
-          const idx = sessions.findIndex((x) => x.id === s.id)
           return (
             <div
               key={s.id}
@@ -106,7 +102,7 @@ export function PriorityLayout({ sessions, isMobile }: Props) {
             >
               <TerminalPane
                 session={s}
-                isActive={idx === activePaneIndex}
+                isActive={s.id === activeId}
                 onClick={() => handleThumbnailClick(s.id)}
               />
             </div>

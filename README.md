@@ -32,7 +32,9 @@ Typical uses:
 ### Terminal & Sessions
 - **Native PTY sessions** — real OS processes (`os.openpty`), not containers; full color, Unicode, resize
 - **Up to 6 concurrent sessions** — configurable; each session persists until explicitly closed or the process exits
-- **Grid and Priority layouts** — switch between equal-size grid and an 80/20 split that auto-promotes the most active session
+- **Grid, Priority and Focus layouts** — switch between an equal-size grid, an 80/20 split that auto-promotes the most active session, and **Focus**, where one shell fills the terminal area and a tab strip (name, status/idle dot, `1`–`6` hint) switches between shells. `Ctrl`/`Cmd`+`Shift`+`Enter` flips between Focus and your last multi-shell layout. Grid ↔ Focus is a pure CSS change — no pane remounts, so shells stay connected and keep their scrollback; background shells in Focus stay mounted at full size, so their PTY geometry is already correct when you switch to them
+- **Full screen** — the expand icon in the header (or `Ctrl`/`Cmd`+`Shift`+`F`) hides the sidebar, header, embedded page and version badge so the shells get the whole window, in any layout. The tab strip stays as the only chrome and carries the layout switcher and exit button. On Chromium desktop browsers it also enters browser fullscreen with the [Keyboard Lock API](https://developer.mozilla.org/en-US/docs/Web/API/Keyboard_API) holding `Esc`, so a quick `Esc` still reaches vim / Claude Code and only *holding* `Esc` exits; on Safari, Firefox and mobile (where `Esc` would be swallowed) it only hides the app chrome. `Esc` is never bound by Nexus itself
+- **Keyboard shell switching** — `Ctrl`/`Cmd`+`1`–`6` jumps to shell N and `Ctrl`/`Cmd`+`Shift`+`[` / `]` steps to the previous / next shell, in every layout. All layout shortcuts are captured before xterm, so they never reach the shell (`Ctrl`+`N` passes through when there is no shell N). On macOS, browsers reserve `Cmd`+`1`–`9` for tab switching — use `Ctrl`
 - **Draggable resize handles** — drag the sidebar's right edge to resize it (160–520 px); drag the divider between the terminal area and an embedded page to adjust the split (20–80%); desktop only; all sidebar tab panels (Sessions, Orchestrator, Pages) fill the resized width
 - **Build version badge** — commit hash and UTC build timestamp displayed in the bottom-left corner on desktop for instant deploy verification
 - **Multi-tab support** — open the same session in multiple browser tabs; all tabs share one PTY reader
@@ -1074,7 +1076,7 @@ nexus/
 └── frontend/src/
     ├── components/
     │   ├── auth/              # LoginForm (multi-step MFA), TotpSetupModal
-    │   ├── terminal/          # TerminalPane, TerminalGrid, PriorityLayout, MobileKeybar
+    │   ├── terminal/          # TerminalPane, TerminalGrid (grid + focus), PriorityLayout, SessionTabBar, MobileKeybar
     │   └── ui/                # SessionList, OrchestratorPanel, PageList, HelpModal,
     │                          #   SettingsPanel, DisplayScaleControls
     ├── hooks/                 # useAuth, useTerminalSocket, useDisplayScale, …

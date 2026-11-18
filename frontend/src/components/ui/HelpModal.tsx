@@ -18,6 +18,9 @@ const SECTIONS = [
     items: [
       ['Grid', 'All running sessions share equal space. Toggle via the grid icon in the header.'],
       ['Priority', '80 / 20 split: one large primary pane + thumbnail strips for the rest. Toggle via the priority icon in the header.'],
+      ['Focus', 'One shell fills the whole terminal area; a tab strip above it switches shells. The other shells keep running (and stay connected) in the background. Ctrl/Cmd Shift Enter flips between Focus and your last multi-shell layout.'],
+      ['Full screen', 'The expand icon (or Ctrl/Cmd Shift F) hides the sidebar, header and embedded page so shells get the whole window. Works with any layout; the tab strip stays visible for switching and has the exit button. In Chrome/Edge it also goes browser-fullscreen — hold Esc to leave (a quick Esc still reaches vim / Claude Code).'],
+      ['Switch shells', 'Ctrl/Cmd 1–6 jumps to a shell; Ctrl/Cmd Shift [ and ] step to the previous / next one. Works in every layout.'],
       ['Auto-promote', 'In Priority mode, the ▶ button automatically promotes the most recently active session to primary when the current primary goes idle.'],
     ],
   },

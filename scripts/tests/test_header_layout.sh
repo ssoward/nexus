@@ -51,8 +51,9 @@ for spec in "390 2.0" "390 1.5" "320 1.4" "768 2.0"; do
 <div id="wrap" style="width:${width}px">
   <header class="${HEADER_CLASS}">
     <button class="p-1.5 rounded">M</button>
-    <div class="flex items-center gap-0.5 mr-2">
-      <button class="p-1.5 rounded">G</button><button class="p-1.5 rounded">P</button>
+    <div class="flex items-center gap-0.5 mr-2 shrink-0">
+      <button class="p-1.5 rounded">G</button><button class="p-1.5 rounded">P</button><button class="p-1.5 rounded">F</button>
+      <button class="p-1.5 rounded shrink-0">X</button>
     </div>
     <div class="flex items-center shrink-0">
       <button class="px-1.5 py-1 text-xs">A-</button>

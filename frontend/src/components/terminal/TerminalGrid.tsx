@@ -1,11 +1,13 @@
-import { useEffect, useRef } from 'react'
-import { useSessionStore } from '@/store/sessionStore'
+import { useRef } from 'react'
+import { useSessionStore, activeIndexIn } from '@/store/sessionStore'
 import { TerminalPane } from './TerminalPane'
 import type { Session } from '@/types/session'
 
 interface Props {
   sessions: Session[]
   isMobile: boolean
+  /** Desktop only: show just the active shell, filling the whole terminal area. */
+  focus?: boolean
 }
 
 function getGridClass(count: number): string {
@@ -15,8 +17,14 @@ function getGridClass(count: number): string {
   return 'grid-cols-3 grid-rows-2'
 }
 
-export function TerminalGrid({ sessions, isMobile }: Props) {
-  const { activePaneIndex, setActivePane } = useSessionStore()
+export function TerminalGrid({ sessions, isMobile, focus = false }: Props) {
+  const activeSessionId = useSessionStore((s) => s.activeSessionId)
+  const setActiveSession = useSessionStore((s) => s.setActiveSession)
+  const activeIdx = activeIndexIn(sessions, activeSessionId)
+  const select = (idx: number) => {
+    const s = sessions[Math.max(0, Math.min(sessions.length - 1, idx))]
+    if (s) setActiveSession(s.id)
+  }
 
   // Touch tracking refs for swipe-to-switch gesture (mobile only)
   const touchStartX = useRef(0)
@@ -30,35 +38,11 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
   const handleTouchEnd = (e: React.TouchEvent) => {
     const dx = e.changedTouches[0].clientX - touchStartX.current
     const dy = e.changedTouches[0].clientY - touchStartY.current
-    const activeIdx = Math.min(activePaneIndex, sessions.length - 1)
     // Only fire for clearly horizontal swipes (avoids interfering with terminal scroll)
     if (Math.abs(dx) > 80 && Math.abs(dx) > Math.abs(dy) * 2) {
-      if (dx < 0) setActivePane(Math.min(sessions.length - 1, activeIdx + 1))
-      else        setActivePane(Math.max(0, activeIdx - 1))
+      select(dx < 0 ? activeIdx + 1 : activeIdx - 1)
     }
   }
-
-  // Clamp active index when sessions are removed
-  useEffect(() => {
-    if (activePaneIndex >= sessions.length && sessions.length > 0) {
-      setActivePane(sessions.length - 1)
-    }
-  }, [sessions.length, activePaneIndex, setActivePane])
-
-  // Keyboard shortcut: Ctrl+1–6 to switch panes
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key >= '1' && e.key <= '6') {
-        const idx = parseInt(e.key, 10) - 1
-        if (idx < sessions.length) {
-          e.preventDefault()
-          setActivePane(idx)
-        }
-      }
-    }
-    window.addEventListener('keydown', handler)
-    return () => window.removeEventListener('keydown', handler)
-  }, [sessions.length, setActivePane])
 
   if (sessions.length === 0) {
     return (
@@ -70,7 +54,6 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
 
   // ── Mobile: single pane + prev/next nav ──────────────────────────────────
   if (isMobile) {
-    const activeIdx = Math.min(activePaneIndex, sessions.length - 1)
     return (
       <div className="flex-1 flex flex-col min-h-0">
         {/* All panes rendered (keeps WS alive), only active visible.
@@ -88,7 +71,7 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
               <TerminalPane
                 session={session}
                 isActive={idx === activeIdx}
-                onClick={() => setActivePane(idx)}
+                onClick={() => setActiveSession(session.id)}
               />
             </div>
           ))}
@@ -98,7 +81,7 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
         {sessions.length > 1 && (
           <div className="shrink-0 flex items-center bg-[#161b22] border-t border-terminal-border px-2 py-1 gap-2">
             <button
-              onClick={() => setActivePane(Math.max(0, activeIdx - 1))}
+              onClick={() => select(activeIdx - 1)}
               disabled={activeIdx === 0}
               className="px-3 py-1.5 text-xs font-mono rounded border border-terminal-border text-terminal-fg/60 hover:bg-terminal-border disabled:opacity-30"
             >
@@ -110,7 +93,7 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
               {sessions.map((s, idx) => (
                 <button
                   key={s.id}
-                  onClick={() => setActivePane(idx)}
+                  onClick={() => setActiveSession(s.id)}
                   className={`rounded-full transition-all ${
                     idx === activeIdx
                       ? 'w-4 h-2 bg-terminal-active'
@@ -122,7 +105,7 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
             </div>
 
             <button
-              onClick={() => setActivePane(Math.min(sessions.length - 1, activeIdx + 1))}
+              onClick={() => select(activeIdx + 1)}
               disabled={activeIdx === sessions.length - 1}
               className="px-3 py-1.5 text-xs font-mono rounded border border-terminal-border text-terminal-fg/60 hover:bg-terminal-border disabled:opacity-30"
             >
@@ -134,16 +117,36 @@ export function TerminalGrid({ sessions, isMobile }: Props) {
     )
   }
 
-  // ── Desktop: multi-pane grid ─────────────────────────────────────────────
+  // ── Desktop: multi-pane grid, or focus (one shell fills the area) ────────
+  // Both modes render the same keyed wrapper per session under the same parent,
+  // so toggling between them only changes classes: no TerminalPane remounts,
+  // no WebSocket reconnect, scrollback preserved. In focus mode the other shells
+  // stay mounted at full size but `invisible` (not display:none), so their PTY
+  // geometry already matches when you switch to them and they can't take focus.
   return (
-    <div className={`flex-1 grid gap-1 p-1 min-h-0 ${getGridClass(sessions.length)}`}>
+    <div
+      className={
+        focus
+          ? 'flex-1 relative min-h-0'
+          : `flex-1 grid gap-1 p-1 min-h-0 ${getGridClass(sessions.length)}`
+      }
+    >
       {sessions.map((session, idx) => (
-        <TerminalPane
+        <div
           key={session.id}
-          session={session}
-          isActive={idx === activePaneIndex}
-          onClick={() => setActivePane(idx)}
-        />
+          className={
+            focus
+              ? `absolute inset-1 ${idx === activeIdx ? '' : 'invisible pointer-events-none'}`
+              : 'min-h-0 min-w-0'
+          }
+          aria-hidden={focus && idx !== activeIdx ? true : undefined}
+        >
+          <TerminalPane
+            session={session}
+            isActive={idx === activeIdx}
+            onClick={() => setActiveSession(session.id)}
+          />
+        </div>
       ))}
     </div>
   )

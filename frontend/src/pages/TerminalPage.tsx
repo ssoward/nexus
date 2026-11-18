@@ -1,6 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { TerminalGrid } from '@/components/terminal/TerminalGrid'
 import { PriorityLayout } from '@/components/terminal/PriorityLayout'
+import { SessionTabBar } from '@/components/terminal/SessionTabBar'
+import { LayoutControls, FullscreenButton } from '@/components/terminal/LayoutControls'
 import { SessionList } from '@/components/ui/SessionList'
 import { OrchestratorPanel } from '@/components/ui/OrchestratorPanel'
 import { PageList } from '@/components/ui/PageList'
@@ -14,8 +16,10 @@ import { useSession } from '@/hooks/useSession'
 import { useAuth } from '@/hooks/useAuth'
 import { useIsMobile } from '@/hooks/useIsMobile'
 import { useVisualViewportHeight } from '@/hooks/useVisualViewportHeight'
-import { useSessionStore } from '@/store/sessionStore'
+import { useSessionStore, attachedSessions } from '@/store/sessionStore'
 import { useAutoPromote } from '@/hooks/useAutoPromote'
+import { useFullscreen } from '@/hooks/useFullscreen'
+import { useLayoutShortcuts } from '@/hooks/useLayoutShortcuts'
 
 export function TerminalPage() {
   const { logout, user } = useAuth()
@@ -24,7 +28,8 @@ export function TerminalPage() {
   // Keep the layout inside the visible area when the mobile soft keyboard
   // opens (iOS overlays the keyboard instead of resizing the viewport).
   useVisualViewportHeight(isMobile)
-  const { layoutMode, setLayoutMode, autoPromote, setAutoPromote } = useSessionStore()
+  const layoutMode = useSessionStore((s) => s.layoutMode)
+  const { immersive, toggle: toggleFullscreen } = useFullscreen(isMobile)
   const [sidebarOpen, setSidebarOpen] = useState(!isMobile)
   const [sidebarWidth, setSidebarWidth] = useState(256)
   const sidebarRef = useRef<HTMLDivElement>(null)
@@ -105,10 +110,14 @@ export function TerminalPage() {
   // this they'd stay "recovering" forever, since nothing else triggers the
   // backend recovery path. The pane shows "connecting…" until the PTY respawns
   // and the status flips back to running.
-  const attached = sessions.filter(
-    (s) => s.status === 'running' || s.status === 'recovery_pending'
-  )
+  const attached = useMemo(() => attachedSessions(sessions), [sessions])
   useAutoPromote(running)
+  useLayoutShortcuts(attached, toggleFullscreen)
+  // Mobile is always one shell at a time, so "focus" there is just the normal view.
+  const focusLayout = layoutMode === 'focus' && !isMobile
+  // In full screen the header is gone, so the tab bar carries the controls.
+  const showTabBar = (focusLayout || immersive) && attached.length > 0
+  const showPage = activePage && !immersive
 
   return (
     <div
@@ -117,15 +126,15 @@ export function TerminalPage() {
     >
 
       {/* ── Mobile backdrop ── */}
-      {isMobile && sidebarOpen && (
+      {isMobile && sidebarOpen && !immersive && (
         <div
           className="fixed inset-0 z-30 bg-black/60"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* ── Sidebar ── */}
-      <div
+      {/* ── Sidebar (hidden in full screen) ── */}
+      {!immersive && <div
         ref={sidebarRef}
         className={[
           'shrink-0 flex flex-col overflow-hidden',
@@ -166,10 +175,10 @@ export function TerminalPage() {
         {sidebarTab === 'orchestrator' && <OrchestratorPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
         {sidebarTab === 'pages' && <PageList onClose={isMobile ? () => setSidebarOpen(false) : undefined} onSelectPage={(p) => { setActivePage(p); if (isMobile && p) setSidebarOpen(false) }} activePage={activePage} />}
         {sidebarTab === 'settings' && <SettingsPanel onClose={isMobile ? () => setSidebarOpen(false) : undefined} />}
-      </div>
+      </div>}
 
       {/* ── Sidebar resize handle ── */}
-      {!isMobile && sidebarOpen && (
+      {!isMobile && sidebarOpen && !immersive && (
         <div
           onMouseDown={handleSidebarResizeStart}
           className="relative w-1.5 shrink-0 cursor-col-resize group z-10 self-stretch"
@@ -184,7 +193,7 @@ export function TerminalPage() {
             clipped row silently swallows the trailing ones (Sign out) once the
             display zoom makes them wider than the viewport. Wrapping costs a
             little height but keeps every action reachable at any scale. */}
-        <header className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 bg-[#161b22] border-b border-terminal-border shrink-0 min-w-0">
+        {!immersive && <header className="flex flex-wrap items-center gap-x-2 gap-y-1 px-3 py-2 bg-[#161b22] border-b border-terminal-border shrink-0 min-w-0">
           {/* Sidebar toggle */}
           <button
             onClick={() => setSidebarOpen((v) => !v)}
@@ -201,35 +210,10 @@ export function TerminalPage() {
             </svg>
           </button>
 
-          {/* Layout toggle */}
-          <div className="flex items-center gap-0.5 mr-2">
-            <button
-              onClick={() => setLayoutMode('grid')}
-              className={`p-1.5 rounded transition-colors ${layoutMode === 'grid' ? 'text-terminal-active bg-terminal-active/10' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
-              title="Grid layout"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1 1h6v6H1zm8 0h6v6H9zM1 9h6v6H1zm8 0h6v6H9z" />
-              </svg>
-            </button>
-            <button
-              onClick={() => setLayoutMode('priority')}
-              className={`p-1.5 rounded transition-colors ${layoutMode === 'priority' ? 'text-terminal-active bg-terminal-active/10' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
-              title="Priority layout"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M1 1h10v10H1zm12 0h2v4h-2zM13 6h2v5h-2z" />
-              </svg>
-            </button>
-            {layoutMode === 'priority' && (
-              <button
-                onClick={() => setAutoPromote(!autoPromote)}
-                className={`ml-1 p-1.5 rounded text-xs font-mono transition-colors ${autoPromote ? 'text-green-400 bg-green-900/20' : 'text-terminal-fg/40 bg-terminal-border/30'}`}
-                title={autoPromote ? 'Auto-promote ON' : 'Auto-promote OFF'}
-              >
-                {autoPromote ? '▶' : '⏸'}
-              </button>
-            )}
+          {/* Layout toggle + full screen */}
+          <div className="flex items-center gap-0.5 mr-2 shrink-0">
+            <LayoutControls showFocus={!isMobile} />
+            <FullscreenButton active={immersive} onClick={toggleFullscreen} />
           </div>
 
           <span className="font-mono text-sm text-terminal-fg/60 flex-1 min-w-0 basis-0 truncate">
@@ -279,13 +263,13 @@ export function TerminalPage() {
           >
             Sign out
           </button>
-        </header>
+        </header>}
 
         {showTotpSetup && <TotpSetupModal hasTotp={user?.has_totp ?? false} onClose={() => setShowTotpSetup(false)} />}
         {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 
         {/* Mobile full-screen page overlay */}
-        {activePage && isMobile && (
+        {showPage && isMobile && (
           <div className="fixed inset-0 z-50 flex flex-col bg-white">
             <div className="shrink-0 flex items-center gap-2 px-3 py-2 bg-[#161b22] border-b border-terminal-border">
               <button
@@ -319,14 +303,25 @@ export function TerminalPage() {
         <div className="flex flex-1 min-h-0" ref={splitContainerRef}>
           <div
             className="flex flex-col min-h-0 min-w-0"
-            style={activePage && !isMobile ? { flex: `${terminalPct} 1 0%` } : { flex: '1 1 0%' }}
+            style={showPage && !isMobile ? { flex: `${terminalPct} 1 0%` } : { flex: '1 1 0%' }}
           >
+            {showTabBar && (
+              <SessionTabBar
+                sessions={attached}
+                immersive={immersive}
+                onToggleFullscreen={toggleFullscreen}
+                isMobile={isMobile}
+              />
+            )}
+            {/* Grid and focus share one TerminalGrid instance (same element
+                type and position), so switching between them never remounts a
+                pane or reconnects its socket. */}
             {layoutMode === 'priority'
               ? <PriorityLayout sessions={attached} isMobile={isMobile} />
-              : <TerminalGrid sessions={attached} isMobile={isMobile} />
+              : <TerminalGrid sessions={attached} isMobile={isMobile} focus={focusLayout} />
             }
           </div>
-          {activePage && !isMobile && (
+          {showPage && !isMobile && (
             <>
               {/* Page resize handle */}
               <div
@@ -346,7 +341,7 @@ export function TerminalPage() {
         </div>
       </div>
       {/* ── Version badge ── */}
-      {!isMobile && (
+      {!isMobile && !immersive && (
         <div className="fixed bottom-1 left-1 text-[0.5625rem] font-mono text-terminal-fg/20 pointer-events-none select-none z-50">
           {__COMMIT__} · {__BUILD_TIME__}
         </div>

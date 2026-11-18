@@ -1,4 +1,4 @@
-import { useSessionStore } from '@/store/sessionStore'
+import { useSessionStore, attachedSessions } from '@/store/sessionStore'
 import type { Session } from '@/types/session'
 
 interface Props {
@@ -8,11 +8,13 @@ interface Props {
 }
 
 export function PaneControls({ session, onDelete, onFocus }: Props) {
-  const { setActivePane, sessions } = useSessionStore()
-  const idx = sessions.findIndex((s) => s.id === session.id)
+  const setActiveSession = useSessionStore((s) => s.setActiveSession)
+  // Index within the attached list — the same order the panes and the
+  // Ctrl+1–6 shortcuts use (stopped/errored sessions have no pane).
+  const idx = useSessionStore((s) => attachedSessions(s.sessions).findIndex((x) => x.id === session.id))
 
   const handleFocus = () => {
-    if (idx >= 0) setActivePane(idx)
+    if (idx >= 0) setActiveSession(session.id)
     onFocus?.()
   }
 

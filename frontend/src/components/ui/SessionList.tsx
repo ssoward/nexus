@@ -16,7 +16,7 @@ interface Props {
 
 export function SessionList({ onClose }: Props) {
   const { sessions, create, remove } = useSession()
-  const { activePaneIndex } = useSessionStore()
+  const activeSessionId = useSessionStore((s) => s.activeSessionId)
   const [showDialog, setShowDialog] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
@@ -74,11 +74,11 @@ export function SessionList({ onClose }: Props) {
             No sessions yet
           </p>
         )}
-        {sessions.map((session, idx) => (
+        {sessions.map((session) => (
           <div
             key={session.id}
             className={`px-3 py-2 border-b border-terminal-border/50 ${
-              idx === activePaneIndex ? 'bg-terminal-active/10' : 'hover:bg-white/5'
+              session.id === activeSessionId ? 'bg-terminal-active/10' : 'hover:bg-white/5'
             }`}
           >
             {pendingDeleteId === session.id ? (

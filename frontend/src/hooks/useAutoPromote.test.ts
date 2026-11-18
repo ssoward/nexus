@@ -13,7 +13,7 @@ function s(id: string): Session {
 
 function reset(over = {}) {
   useSessionStore.setState({
-    sessions: [], activePaneIndex: 0, lastOutputTimestamps: {},
+    sessions: [], activeSessionId: null, lastOutputTimestamps: {},
     layoutMode: 'priority', primarySessionId: 'a', autoPromote: true, ...over,
   })
 }
