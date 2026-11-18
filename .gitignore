@@ -50,3 +50,6 @@ backend/uvicorn.log
 coverage/
 **/coverage/
 .coverage
+
+# Claude Code session handoffs (local, per-machine)
+.claude/sessions/
