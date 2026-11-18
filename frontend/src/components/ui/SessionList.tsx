@@ -17,6 +17,7 @@ interface Props {
 export function SessionList({ onClose }: Props) {
   const { sessions, create, remove } = useSession()
   const activeSessionId = useSessionStore((s) => s.activeSessionId)
+  const setActiveSession = useSessionStore((s) => s.setActiveSession)
   const [showDialog, setShowDialog] = useState(false)
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null)
 
@@ -24,7 +25,9 @@ export function SessionList({ onClose }: Props) {
   const maxReached = runningCount >= MAX_SESSIONS
 
   const handleCreate = async (req: Parameters<typeof create>[0]) => {
-    await create(req)
+    const session = await create(req)
+    // Bring the new shell to the front (in Focus it would otherwise sit behind its tab).
+    setActiveSession(session.id)
     onClose?.()
   }
 

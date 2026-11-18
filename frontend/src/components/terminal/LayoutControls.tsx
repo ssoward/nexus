@@ -1,5 +1,10 @@
 import { useSessionStore, type LayoutMode } from '@/store/sessionStore'
 
+// Buttons in the terminal chrome must not take keyboard focus from xterm:
+// after a click the shell should still receive typing, and Space/Enter must
+// not re-fire the button.
+export const keepTerminalFocus = (e: React.MouseEvent) => e.preventDefault()
+
 const MODES: { mode: LayoutMode; title: string; path: string }[] = [
   { mode: 'grid', title: 'Grid — all shells visible', path: 'M1 1h6v6H1zm8 0h6v6H9zM1 9h6v6H1zm8 0h6v6H9z' },
   { mode: 'priority', title: 'Priority — one large shell + thumbnails', path: 'M1 1h10v10H1zm12 0h2v4h-2zM13 6h2v5h-2z' },
@@ -23,6 +28,7 @@ export function LayoutControls({ showFocus = true }: Props) {
       {MODES.filter((m) => showFocus || m.mode !== 'focus').map((m) => (
         <button
           key={m.mode}
+          onMouseDown={keepTerminalFocus}
           onClick={() => setLayoutMode(m.mode)}
           className={`p-1.5 rounded transition-colors ${layoutMode === m.mode ? 'text-terminal-active bg-terminal-active/10' : 'text-terminal-fg/40 hover:text-terminal-fg'}`}
           title={m.title}
@@ -36,6 +42,7 @@ export function LayoutControls({ showFocus = true }: Props) {
       ))}
       {layoutMode === 'priority' && (
         <button
+          onMouseDown={keepTerminalFocus}
           onClick={() => setAutoPromote(!autoPromote)}
           className={`ml-1 p-1.5 rounded text-xs font-mono transition-colors ${autoPromote ? 'text-green-400 bg-green-900/20' : 'text-terminal-fg/40 bg-terminal-border/30'}`}
           title={autoPromote ? 'Auto-promote ON' : 'Auto-promote OFF'}
@@ -56,6 +63,7 @@ interface FullscreenButtonProps {
 export function FullscreenButton({ active, onClick }: FullscreenButtonProps) {
   return (
     <button
+      onMouseDown={keepTerminalFocus}
       onClick={onClick}
       className={`p-1.5 rounded transition-colors shrink-0 ${active ? 'text-terminal-active bg-terminal-active/10 hover:bg-terminal-active/20' : 'text-terminal-fg/40 hover:text-terminal-fg hover:bg-terminal-border'}`}
       title={active ? 'Exit full screen (Ctrl/Cmd Shift F)' : 'Full screen (Ctrl/Cmd Shift F)'}

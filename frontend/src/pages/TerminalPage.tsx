@@ -115,8 +115,9 @@ export function TerminalPage() {
   useLayoutShortcuts(attached, toggleFullscreen)
   // Mobile is always one shell at a time, so "focus" there is just the normal view.
   const focusLayout = layoutMode === 'focus' && !isMobile
-  // In full screen the header is gone, so the tab bar carries the controls.
-  const showTabBar = (focusLayout || immersive) && attached.length > 0
+  // In full screen the header is gone, so the tab bar carries the controls —
+  // always shown there, even with no shells, so there is always a way out.
+  const showTabBar = immersive || (focusLayout && attached.length > 0)
   const showPage = activePage && !immersive
 
   return (

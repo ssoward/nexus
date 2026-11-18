@@ -1,7 +1,7 @@
 import { clsx } from 'clsx'
 import { useSessionStore, activeIndexIn } from '@/store/sessionStore'
 import { useInactivityDetector } from '@/hooks/useInactivityDetector'
-import { LayoutControls, FullscreenButton } from './LayoutControls'
+import { LayoutControls, FullscreenButton, keepTerminalFocus } from './LayoutControls'
 import type { Session } from '@/types/session'
 
 interface Props {
@@ -28,6 +28,9 @@ export function SessionTabBar({ sessions, immersive, onToggleFullscreen, isMobil
       aria-label="Shells"
     >
       <div className="flex items-stretch gap-0.5 flex-1 min-w-0 overflow-x-auto">
+        {sessions.length === 0 && (
+          <span className="px-2 py-1 text-xs font-mono text-terminal-fg/40">No active sessions</span>
+        )}
         {sessions.map((s, idx) => (
           <SessionTab
             key={s.id}
@@ -50,6 +53,7 @@ function SessionTab({ session, index, active, onSelect }: { session: Session; in
     <button
       role="tab"
       aria-selected={active}
+      onMouseDown={keepTerminalFocus}
       onClick={onSelect}
       title={index < 6 ? `${session.name} (Ctrl+${index + 1})` : session.name}
       className={clsx(
